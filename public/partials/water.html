@@ -1,0 +1,25 @@
+<div class="row g-4 align-items-stretch">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">AIR</span> Monitoring Level Air</div>
+            <div class="card-body">
+                <div class="water-monitor-panel h-100">
+                    <span class="label-value">Output Level Air dari ESP32</span>
+                    <p class="water-reading">
+                        <span class="value" id="waterLevel">0</span>
+                        <span class="water-unit">cm</span>
+                    </p>
+                    <div class="water-level-bar">
+                        <div id="waterLevelBar"></div>
+                    </div>
+                    <p class="water-meta">Status: <span id="waterStatus">Menunggu data ESP32</span></p>
+                    <p class="water-meta">Update ESP32: <span id="waterLastUpdated">-</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div data-partial="partials/control.html"></div>
+    </div>
+</div>
