@@ -246,11 +246,11 @@ async function verifyPassword(user, password) {
 }
 
 app.get("/", (req, res) => {
-    if (getSession(req)) {
-        return res.redirect("/dashboard");
-    }
+    res.sendFile(path.join(publicPath, "index.html"));
+});
 
-    return res.redirect("/login.html");
+app.get("/index.html", (req, res) => {
+    res.sendFile(path.join(publicPath, "index.html"));
 });
 
 app.get("/login", (req, res) => {
@@ -265,8 +265,8 @@ app.get("/login.html", (req, res) => {
     return res.sendFile(path.join(publicPath, "login.html"));
 });
 
-app.get(["/dashboard", "/index.html"], requireAuth, (req, res) => {
-    res.sendFile(path.join(publicPath, "index.html"));
+app.get(["/dashboard", "/dashboard.html"], requireAuth, (req, res) => {
+    res.sendFile(path.join(publicPath, "dashboard.html"));
 });
 
 app.use(express.static(publicPath, { index: false }));

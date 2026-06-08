@@ -3,113 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard CPE210 Monitoring</title>
+    <title>CPE210 Monitoring</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="landing-page">
+    <main class="landing-shell">
+        <nav class="landing-nav" aria-label="Navigasi utama">
+            <a class="landing-brand" href="/">
+                <span class="brand-mark">CPE</span>
+                <span>CPE210 Monitoring</span>
+            </a>
 
-<div class="dashboard-layout">
+            <a class="landing-login-link" href="/login.html">Login</a>
+        </nav>
 
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <h3>Dashboard</h3>
-        </div>
+        <section class="landing-hero">
+            <div class="landing-copy">
+                <span class="landing-kicker">Realtime Antenna & Water Level</span>
+                <h1>Sistem monitoring antenna dan level air berbasis web.</h1>
+                <p>
+                    Pantau koneksi CPE210, kualitas sinyal, data ESP32, dan kontrol servo dari satu dashboard operator.
+                </p>
 
-        <ul class="sidebar-menu nav flex-column" id="dashboardTabs" role="tablist">
-
-            <li class="nav-item">
-                <button class="nav-link active"
-                    id="antenna-tab"
-                    data-bs-toggle="tab"
-                    data-bs-target="#antennaPane"
-                    type="button">
-                    📡 Monitoring Antenna
-                </button>
-            </li>
-
-            <li class="nav-item">
-                <button class="nav-link"
-                    id="water-tab"
-                    data-bs-toggle="tab"
-                    data-bs-target="#waterPane"
-                    type="button">
-                    💧 Monitoring Air
-                </button>
-            </li>
-
-            <li class="nav-item">
-                <button class="nav-link"
-                    id="history-tab"
-                    data-bs-toggle="tab"
-                    data-bs-target="#historyPane"
-                    type="button">
-                    📜 History
-                </button>
-            </li>
-
-            <li class="nav-item">
-                <button class="nav-link"
-                    id="about-tab"
-                    data-bs-toggle="tab"
-                    data-bs-target="#aboutPane"
-                    type="button">
-                    👤 About Us
-                </button>
-            </li>
-
-        </ul>
-    </aside>
-
-    <!-- Main -->
-    <main class="main-content">
-
-        <!-- Hamburger -->
-        <button class="hamburger-btn" id="hamburgerBtn">
-            ☰
-        </button>
-
-        <div class="container-fluid mt-4">
-            <h2 class="dashboard-header">
-                Monitoring Dashboard Realtime
-            </h2>
-
-<div class="container mt-5">
-    <h2 class="dashboard-header">Monitoring Dashboard Realtime</h2>
-
-    <div class="tab-content dashboard-tab-content" id="dashboardTabsContent">
-        <div class="tab-pane fade show active" id="antennaPane" role="tabpanel" aria-labelledby="antenna-tab" tabindex="0">
-            <div data-partial="partials/antenna.html"></div>
-        </div>
-
-        <div class="tab-pane fade" id="waterPane" role="tabpanel" aria-labelledby="water-tab" tabindex="0">
-            <div data-partial="partials/water.html"></div>
-        </div>
-
-        <div class="tab-pane fade" id="historyPane" role="tabpanel" aria-labelledby="history-tab" tabindex="0">
-            <div data-partial="partials/history.html"></div>
-        </div>
-
-        <div class="tab-pane fade" id="aboutPane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
-            <div data-partial="partials/about.html"></div>
-        </div>
-    </div>
-
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="alert alert-info alert-dismissible fade show" role="alert">
-                <strong>Info:</strong> Data CPE210 di-update setiap 3 detik. ESP32 mengirim level air ke laptop server 192.168.1.20:3000.
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <div class="landing-actions">
+                    <a class="landing-primary-btn" href="/login.html">Masuk ke Login</a>
+                    <a class="landing-secondary-btn" href="#fitur">Lihat Fitur</a>
+                </div>
             </div>
-        </div>
-    </div>
-</div>
 
-        </div>
+            <div class="landing-preview" aria-label="Pratinjau dashboard">
+                <div class="preview-window">
+                    <div class="preview-topbar">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+
+                    <div class="preview-grid">
+                        <div class="preview-panel wide">
+                            <span>Signal Quality</span>
+                            <strong>-63 dBm</strong>
+                            <div class="preview-meter">
+                                <i style="width: 72%;"></i>
+                            </div>
+                        </div>
+
+                        <div class="preview-panel">
+                            <span>Water Level</span>
+                            <strong>142 cm</strong>
+                            <div class="preview-meter">
+                                <i style="width: 56%;"></i>
+                            </div>
+                        </div>
+
+                        <div class="preview-panel">
+                            <span>Servo</span>
+                            <strong>Siap</strong>
+                            <div class="preview-meter">
+                                <i style="width: 38%;"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="landing-feature-band" id="fitur" aria-label="Fitur utama">
+            <div class="landing-feature">
+                <span>01</span>
+                <strong>Monitoring Realtime</strong>
+                <p>Data dashboard diperbarui otomatis untuk membantu operator melihat kondisi terbaru.</p>
+            </div>
+
+            <div class="landing-feature">
+                <span>02</span>
+                <strong>Kontrol Servo</strong>
+                <p>Perintah naik dan turun tersimpan di history agar pergerakan mudah ditelusuri.</p>
+            </div>
+
+            <div class="landing-feature">
+                <span>03</span>
+                <strong>Akses Terproteksi</strong>
+                <p>Dashboard utama hanya bisa dibuka setelah operator berhasil login.</p>
+            </div>
+        </section>
     </main>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="js/script.js"></script>
 </body>
 </html>

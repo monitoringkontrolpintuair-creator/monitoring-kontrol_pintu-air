@@ -1,4 +1,85 @@
 document.addEventListener("DOMContentLoaded", function() {
+    const hamburgerBtn = document.getElementById("hamburgerBtn");
+    const sidebar = document.getElementById("sidebar");
+    const mainContent = document.querySelector(".main-content");
+
+    function setSidebarExpanded(isExpanded) {
+        if (!hamburgerBtn) {
+            return;
+        }
+
+        hamburgerBtn.classList.toggle("active", isExpanded);
+        hamburgerBtn.setAttribute("aria-expanded", String(isExpanded));
+    }
+
+    function setupSidebar() {
+        if (!hamburgerBtn || !sidebar || !mainContent) {
+            return;
+        }
+
+        setSidebarExpanded(window.innerWidth > 768);
+
+        hamburgerBtn.addEventListener("click", () => {
+            if (window.innerWidth <= 768) {
+                const isOpen = sidebar.classList.toggle("active");
+                setSidebarExpanded(isOpen);
+                return;
+            }
+
+            const isClosed = sidebar.classList.toggle("closed");
+            mainContent.classList.toggle("full", isClosed);
+            setSidebarExpanded(!isClosed);
+        });
+
+        sidebar.querySelectorAll(".nav-link").forEach((link) => {
+            link.addEventListener("click", () => {
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.remove("active");
+                    setSidebarExpanded(false);
+                }
+            });
+        });
+
+        window.addEventListener("resize", () => {
+            if (window.innerWidth <= 768) {
+                sidebar.classList.remove("closed");
+                mainContent.classList.remove("full");
+                setSidebarExpanded(sidebar.classList.contains("active"));
+                return;
+            }
+
+            sidebar.classList.remove("active");
+            setSidebarExpanded(!sidebar.classList.contains("closed"));
+        });
+    }
+
+    function updateDashboardClock() {
+        const dashboardClock = document.getElementById("dashboardClock");
+        if (!dashboardClock) {
+            return;
+        }
+
+        dashboardClock.innerText = new Date().toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        });
+    }
+
+    function setDashboardDataStatus(statusText) {
+        const apiStatusText = document.getElementById("apiStatusText");
+        if (apiStatusText) {
+            apiStatusText.innerText = statusText;
+        }
+    }
+
+    function setLastRefreshTime() {
+        const lastRefreshTime = document.getElementById("lastRefreshTime");
+        if (lastRefreshTime) {
+            lastRefreshTime.innerText = new Date().toLocaleTimeString("id-ID");
+        }
+    }
+
     const emptyData = {
         waterLevel: 0,
         waterDistance: null,
@@ -155,16 +236,20 @@ document.addEventListener("DOMContentLoaded", function() {
             
             if (!response.ok) {
                 console.warn("API response not OK");
+                setDashboardDataStatus("Offline");
                 updateUI(emptyData);
                 return;
             }
             
             const data = await response.json();
             console.log("Data received from CPE210:", data);
+            setDashboardDataStatus("Online");
+            setLastRefreshTime();
             updateUI(data);
             loadHistory();
         } catch (err) {
             console.warn("Failed to fetch from API:", err.message);
+            setDashboardDataStatus("Offline");
             updateUI(emptyData);
         }
     }
@@ -357,21 +442,8 @@ document.addEventListener("DOMContentLoaded", function() {
         setInterval(loadWaterData, 1000);
     }
 
+    setupSidebar();
+    updateDashboardClock();
+    setInterval(updateDashboardClock, 1000);
     initDashboard();
-});
-
-// Sidebar Toggle
-const hamburgerBtn = document.getElementById("hamburgerBtn");
-const sidebar = document.getElementById("sidebar");
-const mainContent = document.querySelector(".main-content");
-
-hamburgerBtn.addEventListener("click", () => {
-
-    if (window.innerWidth <= 768) {
-        sidebar.classList.toggle("active");
-    } else {
-        sidebar.classList.toggle("closed");
-        mainContent.classList.toggle("full");
-    }
-
 });

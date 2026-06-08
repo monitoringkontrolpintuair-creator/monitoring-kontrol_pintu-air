@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard CPE210 Monitoring</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="dashboard-layout">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h3>Dashboard</h3>
+            </div>
+
+            <ul class="sidebar-menu nav flex-column" id="dashboardTabs" role="tablist">
+                <li class="nav-item">
+                    <button
+                        class="nav-link active"
+                        id="antenna-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#antennaPane"
+                        type="button"
+                    >
+                        Monitoring Antenna
+                    </button>
+                </li>
+
+                <li class="nav-item">
+                    <button
+                        class="nav-link"
+                        id="water-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#waterPane"
+                        type="button"
+                    >
+                        Monitoring Air
+                    </button>
+                </li>
+
+                <li class="nav-item">
+                    <button
+                        class="nav-link"
+                        id="history-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#historyPane"
+                        type="button"
+                    >
+                        History
+                    </button>
+                </li>
+
+                <li class="nav-item">
+                    <button
+                        class="nav-link"
+                        id="about-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#aboutPane"
+                        type="button"
+                    >
+                        About Us
+                    </button>
+                </li>
+            </ul>
+        </aside>
+
+        <main class="main-content">
+            <button
+                class="hamburger-btn"
+                id="hamburgerBtn"
+                type="button"
+                aria-label="Toggle sidebar"
+                aria-controls="sidebar"
+                aria-expanded="true"
+            >
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+
+            <div class="container dashboard-container">
+                <section class="dashboard-hero">
+                    <div class="dashboard-title-block">
+                        <span class="dashboard-kicker">CPE210 Monitoring</span>
+                        <h1>Monitoring Dashboard Realtime</h1>
+                        <p>Pantau koneksi antenna, level air, dan pergerakan servo dalam satu panel.</p>
+                    </div>
+
+                    <div class="dashboard-status-grid" aria-label="Ringkasan dashboard">
+                        <div class="dashboard-status-item">
+                            <span class="status-label">Operator</span>
+                            <strong id="usernameLabel">-</strong>
+                        </div>
+
+                        <div class="dashboard-status-item">
+                            <span class="status-label">Status Data</span>
+                            <strong id="apiStatusText">Menunggu</strong>
+                        </div>
+
+                        <div class="dashboard-status-item">
+                            <span class="status-label">Jam Lokal</span>
+                            <strong id="dashboardClock">-</strong>
+                        </div>
+
+                        <div class="dashboard-status-item">
+                            <span class="status-label">Update Terakhir</span>
+                            <strong id="lastRefreshTime">-</strong>
+                        </div>
+
+                        <button class="dashboard-logout-btn" id="logoutBtn" type="button">Keluar</button>
+                    </div>
+                </section>
+
+                <div class="tab-content dashboard-tab-content" id="dashboardTabsContent">
+                    <div class="tab-pane fade show active" id="antennaPane" role="tabpanel" aria-labelledby="antenna-tab" tabindex="0">
+                        <div data-partial="partials/antenna.html"></div>
+                    </div>
+
+                    <div class="tab-pane fade" id="waterPane" role="tabpanel" aria-labelledby="water-tab" tabindex="0">
+                        <div data-partial="partials/water.html"></div>
+                    </div>
+
+                    <div class="tab-pane fade" id="historyPane" role="tabpanel" aria-labelledby="history-tab" tabindex="0">
+                        <div data-partial="partials/history.html"></div>
+                    </div>
+
+                    <div class="tab-pane fade" id="aboutPane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
+                        <div data-partial="partials/about.html"></div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="alert alert-info alert-dismissible fade show" role="alert">
+                            <strong>Info:</strong> Data CPE210 di-update setiap 3 detik. ESP32 mengirim level air ke laptop server 192.168.1.20:3000.
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/script.js"></script>
+</body>
+</html>
