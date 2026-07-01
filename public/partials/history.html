@@ -1,4 +1,27 @@
 <div class="row g-4">
+    <div class="col-12">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">WTR</span> History Ketinggian Air</div>
+            <div class="card-body">
+                <p class="chart-caption">Riwayat air hanya dicatat saat nilai atau status berubah, sehingga tidak penuh setiap detik.</p>
+                <div class="history-table-wrap">
+                    <table class="table history-table">
+                        <thead>
+                            <tr>
+                                <th>Waktu</th>
+                                <th>Jarak</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="waterHistoryBody">
+                            <tr><td colspan="3" class="history-empty">Belum ada riwayat ketinggian air</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="col-lg-6">
         <div class="card h-100">
             <div class="card-header"><span class="icon">HIS</span> History Pergerakan Servo</div>

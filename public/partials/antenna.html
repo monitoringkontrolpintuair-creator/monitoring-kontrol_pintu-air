@@ -33,3 +33,26 @@
         </div>
     </div>
 </div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-6 col-md-6">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">Chart RSSI</span></div>
+            <div class="card-body">
+                <p class="chart-caption">Grafik RSSI ditampilkan terpisah di sisi kiri untuk memudahkan pembacaan tren sinyal.</p>
+                <canvas id="cpeRssiChart" width="1000" height="240" class="chart-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6 col-md-6">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">Chart SNR</span></div>
+            <div class="card-body">
+                <p class="chart-caption">Grafik SNR ditampilkan di sisi kanan agar mudah dibandingkan dengan RSSI.</p>
+                <canvas id="cpeSnrChart" width="1000" height="240" class="chart-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+</div>

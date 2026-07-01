@@ -15,24 +15,35 @@
                 <span>CPE210 Monitoring</span>
             </a>
 
-            <a class="landing-login-link" href="/login.html">Login</a>
+            <div class="landing-nav-actions">
+                <a class="landing-link" href="#manfaat">Manfaat</a>
+                <a class="landing-login-link" href="/login.html">Login</a>
+            </div>
         </nav>
 
         <section class="landing-hero">
             <div class="landing-copy">
-                <span class="landing-kicker">Realtime Antenna & Water Level</span>
-                <h1>Sistem monitoring antenna dan level air berbasis web.</h1>
+                <span class="landing-kicker">Realtime • Aman • Profesional</span>
+                <h1>Menampilkan kondisi CPE210 dan level air dengan tampilan yang siap jual dan mudah dipantau.</h1>
                 <p>
-                    Pantau koneksi CPE210, kualitas sinyal, data ESP32, dan kontrol servo dari satu dashboard operator.
+                    Solusi dashboard modern untuk memantau kualitas sinyal, status ESP32, dan kontrol servo dari satu layar. Fitur lengkap tersedia setelah Anda login ke dashboard utama.
                 </p>
 
+                <div class="landing-badges" aria-label="Keunggulan utama">
+                    <span>Live monitoring</span>
+                    <span>Kontrol servo</span>
+                    <span>Riwayat aktivitas</span>
+                </div>
+
                 <div class="landing-actions">
-                    <a class="landing-primary-btn" href="/login.html">Masuk ke Login</a>
+                    <a class="landing-primary-btn" href="/login.html">Masuk ke Dashboard</a>
                     <a class="landing-secondary-btn" href="#fitur">Lihat Fitur</a>
                 </div>
+
+                <p class="landing-note">Untuk membuka semua panel monitoring dan kontrol, pengguna perlu login terlebih dahulu.</p>
             </div>
 
-            <div class="landing-preview" aria-label="Pratinjau dashboard">
+            <aside class="landing-preview" aria-label="Pratinjau dashboard">
                 <div class="preview-window">
                     <div class="preview-topbar">
                         <span></span>
@@ -41,52 +52,73 @@
                     </div>
 
                     <div class="preview-grid">
-                        <div class="preview-panel wide">
+                        <article class="preview-panel wide">
                             <span>Signal Quality</span>
                             <strong>-63 dBm</strong>
-                            <div class="preview-meter">
-                                <i style="width: 72%;"></i>
-                            </div>
-                        </div>
+                            <div class="preview-meter"><i style="width: 72%;"></i></div>
+                        </article>
 
-                        <div class="preview-panel">
+                        <article class="preview-panel">
                             <span>Water Level</span>
                             <strong>142 cm</strong>
-                            <div class="preview-meter">
-                                <i style="width: 56%;"></i>
-                            </div>
-                        </div>
+                            <div class="preview-meter"><i style="width: 56%;"></i></div>
+                        </article>
 
-                        <div class="preview-panel">
+                        <article class="preview-panel">
                             <span>Servo</span>
                             <strong>Siap</strong>
-                            <div class="preview-meter">
-                                <i style="width: 38%;"></i>
-                            </div>
-                        </div>
+                            <div class="preview-meter"><i style="width: 38%;"></i></div>
+                        </article>
+                    </div>
+
+                    <div class="preview-footer">
+                        <strong>Dashboard terproteksi</strong>
+                        <p>Login dulu untuk melihat data lengkap, kontrol, dan riwayat.</p>
                     </div>
                 </div>
-            </div>
+            </aside>
         </section>
 
         <section class="landing-feature-band" id="fitur" aria-label="Fitur utama">
-            <div class="landing-feature">
+            <article class="landing-feature">
                 <span>01</span>
                 <strong>Monitoring Realtime</strong>
-                <p>Data dashboard diperbarui otomatis untuk membantu operator melihat kondisi terbaru.</p>
-            </div>
+                <p>Data dari CPE210 dan ESP32 tampil otomatis untuk membantu operator mengambil keputusan lebih cepat.</p>
+            </article>
 
-            <div class="landing-feature">
+            <article class="landing-feature">
                 <span>02</span>
-                <strong>Kontrol Servo</strong>
-                <p>Perintah naik dan turun tersimpan di history agar pergerakan mudah ditelusuri.</p>
-            </div>
+                <strong>Kontrol Servo & Riwayat</strong>
+                <p>Perintah naik turun, status operasi, dan catatan aktivitas tersedia di satu dashboard yang rapi.</p>
+            </article>
 
-            <div class="landing-feature">
+            <article class="landing-feature">
                 <span>03</span>
                 <strong>Akses Terproteksi</strong>
-                <p>Dashboard utama hanya bisa dibuka setelah operator berhasil login.</p>
-            </div>
+                <p>Halaman utama dibuat sebagai landing page menarik, lalu fitur lengkap hanya bisa dibuka setelah login.</p>
+            </article>
+        </section>
+
+        <section class="landing-grid" id="manfaat" aria-label="Manfaat utama">
+            <article class="landing-card">
+                <h2>Kenapa pengguna menyukai tampilan ini?</h2>
+                <p>Desain yang bersih, elemen visual yang modern, dan alur yang jelas membantu tampilan website terasa lebih “premium” saat pertama kali dibuka.</p>
+            </article>
+
+            <article class="landing-card">
+                <h3>Fitur utama</h3>
+                <ul>
+                    <li>Pratinjau data sinyal dan ketinggian air</li>
+                    <li>Kontrol pergerakan servo dengan status real-time</li>
+                    <li>Login untuk melindungi akses ke dashboard penuh</li>
+                </ul>
+            </article>
+
+            <article class="landing-card landing-cta-card">
+                <h3>Siap membuka dashboard?</h3>
+                <p>Masuk ke halaman login untuk melihat semua panel monitoring dan fitur lengkap.</p>
+                <a class="landing-primary-btn" href="/login.html">Mulai Sekarang</a>
+            </article>
         </section>
     </main>
 </body>

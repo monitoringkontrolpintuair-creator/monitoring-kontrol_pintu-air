@@ -7,6 +7,7 @@ const tough = require("tough-cookie");
 const { MongoClient } = require("mongodb");
 const path = require("path");
 const crypto = require("crypto");
+const { exec } = require("child_process");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,7 @@ const DB_NAME = process.env.DB_NAME || "zeno_dashboard";
 const publicPath = path.join(__dirname, "../public");
 
 let usersCollection;
+let sensorDataCollection;
 
 const jar = new tough.CookieJar();
 const client = wrapper(axios.create({
@@ -25,11 +27,12 @@ const client = wrapper(axios.create({
 
 const BASE_URL = process.env.CPE_BASE_URL || "https://192.168.1.3";
 const DEVICE_USER = process.env.CPE_USER || "admin";
-const DEVICE_PASS = process.env.CPE_PASS || "admin";
+const DEVICE_PASS = process.env.CPE_PASS || "1234";
 const CPE_COOKIE = process.env.CPE_COOKIE || "";
 const ESP32_BASE_URL = process.env.ESP32_BASE_URL || "http://192.168.1.10";
 let cpeCookieOverride = CPE_COOKIE;
 let cpePasswordEncoder;
+let cpeLockUntil = 0;
 
 const sessions = new Map();
 const fallbackUsers = [
@@ -58,9 +61,14 @@ let waterLevelState = {
 const HISTORY_LIMIT = 50;
 const historyState = {
     servo: [],
-    antenna: []
+    antenna: [],
+    water: []
 };
+const MAX_CHART_POINTS = 20;
+const pingHistory = [];
+const WATER_HISTORY_THRESHOLD_CM = 2;
 let lastAntennaSnapshot = null;
+let lastWaterSnapshot = null;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -132,6 +140,42 @@ function addHistoryEvent(type, event) {
     historyState[type] = historyState[type].slice(0, HISTORY_LIMIT);
 }
 
+function recordWaterHistory(distance, status) {
+    const snapshot = {
+        level: Number(distance),
+        distance: Number(distance),
+        status,
+        timestamp: Date.now()
+    };
+
+    if (!Number.isFinite(snapshot.level)) {
+        return;
+    }
+
+    if (!lastWaterSnapshot) {
+        lastWaterSnapshot = snapshot;
+        addHistoryEvent("water", {
+            event: "Data air diterima",
+            ...snapshot
+        });
+        return;
+    }
+
+    const levelDiff = Math.abs(snapshot.level - lastWaterSnapshot.level);
+    const statusChanged = snapshot.status !== lastWaterSnapshot.status;
+
+    if (levelDiff < WATER_HISTORY_THRESHOLD_CM && !statusChanged) {
+        return;
+    }
+
+    addHistoryEvent("water", {
+        event: statusChanged ? "Status air berubah" : "Level air berubah",
+        previous: lastWaterSnapshot,
+        ...snapshot
+    });
+    lastWaterSnapshot = snapshot;
+}
+
 function getAntennaSnapshot(data) {
     return {
         rssi: data.rssiValue || "-",
@@ -139,6 +183,64 @@ function getAntennaSnapshot(data) {
         snr: data.snrValue || "-",
         channel: data.channel || "-"
     };
+}
+
+function parsePingOutput(output) {
+    const normalized = String(output || "");
+
+    const sentMatch = normalized.match(/Sent\s*=\s*(\d+)/i) || normalized.match(/(\d+)\s+packets transmitted/i);
+    const receivedMatch = normalized.match(/Received\s*=\s*(\d+)/i) || normalized.match(/(\d+)\s+packets received/i);
+    const lossMatch = normalized.match(/Lost\s*=\s*(\d+)\s*\(([^)]+)%\s*loss\)/i) || normalized.match(/loss\s*=\s*(\d+(?:\.\d+)?)%/i) || normalized.match(/(\d+(?:\.\d+)?)%\s*packet loss/i);
+    const avgMatch = normalized.match(/Average\s*=\s*(\d+(?:\.\d+)?)\s*ms/i) || normalized.match(/min\/avg\/max\/mdev.*?\/\s*([\d.]+)\//i);
+
+    const packetLoss = lossMatch
+        ? Number((lossMatch[2] ?? lossMatch[1]).replace(/[^\d.]/g, ""))
+        : null;
+
+    return {
+        packetsSent: sentMatch ? Number(sentMatch[1] || sentMatch[2]) : null,
+        packetsReceived: receivedMatch ? Number(receivedMatch[1] || receivedMatch[2]) : null,
+        packetLoss: Number.isFinite(packetLoss) ? packetLoss : null,
+        avgLatencyMs: avgMatch ? Number(avgMatch[1] || avgMatch[2]) : null,
+        raw: normalized.trim()
+    };
+}
+
+function addPingHistory(result) {
+    pingHistory.unshift(result);
+    if (pingHistory.length > MAX_CHART_POINTS) {
+        pingHistory.length = MAX_CHART_POINTS;
+    }
+}
+
+async function saveAntennaDataToMongo(data) {
+    if (!sensorDataCollection) {
+        console.warn("MongoDB sensorDataCollection belum siap, data antenna tidak disimpan ke database.");
+        return;
+    }
+
+    try {
+        await sensorDataCollection.insertOne({
+            source: "cpe210",
+            timestamp: new Date(),
+            createdAt: new Date(),
+            rssiValue: data.rssiValue ?? null,
+            rssiValueCombined: data.rssiValueCombined ?? null,
+            snrValue: data.snrValue ?? null,
+            noiseStrength: data.noiseStrength ?? null,
+            noiseValue: data.noiseValue ?? null,
+            channel: data.channel ?? null,
+            lanIpAddress: data.lanIpAddress ?? null,
+            lanMacAddr: data.lanMacAddr ?? null,
+            clientTxRate: data.clientTxRate ?? null,
+            clientRxRate: data.clientRxRate ?? null,
+            clientSsid: data.clientSsid ?? null,
+            deviceName: data.deviceName ?? null,
+            raw: data
+        });
+    } catch (err) {
+        console.error("Gagal menyimpan data antenna ke MongoDB:", err.message);
+    }
 }
 
 function recordAntennaHistory(data) {
@@ -177,7 +279,10 @@ async function connectMongo() {
 
     const db = mongoClient.db(DB_NAME);
     usersCollection = db.collection("users");
+    sensorDataCollection = db.collection("sensor_data");
+
     await usersCollection.createIndex({ username: 1 }, { unique: true });
+    await sensorDataCollection.createIndex({ timestamp: -1 });
     await ensureDefaultUsers();
 
     console.log(`MongoDB terhubung: ${MONGO_URI} / ${DB_NAME}`);
@@ -375,7 +480,7 @@ function getWaterStatus(distance) {
     return "Rendah";
 }
 
-app.post("/data", (req, res) => {
+app.post("/data", async (req, res) => {
     const distance = Number(req.body.jarak);
 
     console.log(`Request /data dari ${req.ip}:`, req.body);
@@ -387,12 +492,32 @@ app.post("/data", (req, res) => {
         });
     }
 
+    const timestamp = new Date();
+    const status = getWaterStatus(distance);
     waterLevelState = {
         level: distance,
         distance,
-        status: getWaterStatus(distance),
-        lastUpdated: Date.now()
+        status,
+        lastUpdated: timestamp.getTime()
     };
+
+    recordWaterHistory(distance, status);
+
+    try {
+        if (sensorDataCollection) {
+            await sensorDataCollection.insertOne({
+                source: "esp32",
+                jarak: distance,
+                status: waterLevelState.status,
+                timestamp,
+                createdAt: new Date()
+            });
+        } else {
+            console.warn("MongoDB sensorDataCollection belum siap, data sensor hanya disimpan di memori.");
+        }
+    } catch (err) {
+        console.error("Gagal menyimpan data sensor ke MongoDB:", err.message);
+    }
 
     console.log(`Data ESP32 diterima: jarak=${distance} cm, status=${waterLevelState.status}`);
     return res.json({ success: true, water: waterLevelState });
@@ -409,6 +534,65 @@ app.get("/data", (req, res) => {
 
 app.get("/api/water", requireAuth, (req, res) => {
     res.json({ success: true, water: waterLevelState });
+});
+
+async function runPingTest(host, count = 4) {
+    const safeHost = String(host || BASE_URL).replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const command = process.platform === "win32"
+        ? `ping -n ${count} ${safeHost}`
+        : `ping -c ${count} ${safeHost}`;
+
+    return new Promise((resolve, reject) => {
+        exec(command, { timeout: 45000 }, (error, stdout, stderr) => {
+            const output = [stdout, stderr].filter(Boolean).join("\n");
+            const parsed = parsePingOutput(output);
+
+            if (error && parsed.avgLatencyMs === null && parsed.packetsReceived === null) {
+                reject(new Error(`Ping gagal: ${error.message}`));
+                return;
+            }
+
+            resolve({
+                host: safeHost,
+                count,
+                success: true,
+                timestamp: Date.now(),
+                ...parsed,
+                message: parsed.avgLatencyMs !== null
+                    ? `Ping ke ${safeHost} berhasil (${parsed.avgLatencyMs.toFixed(1)} ms)`
+                    : "Ping selesai"
+            });
+        });
+    });
+}
+
+app.get("/api/ping", requireAuth, async (req, res) => {
+    try {
+        const host = String(req.query.host || BASE_URL).trim();
+        const count = Number(req.query.count || 4);
+
+        if (!host) {
+            return res.status(400).json({ success: false, message: "Host ping wajib diisi" });
+        }
+
+        const pingResult = await runPingTest(host, Number.isFinite(count) && count > 0 ? count : 4);
+        addPingHistory(pingResult);
+
+        return res.json({ success: true, ping: pingResult, history: pingHistory.slice(0, 10) });
+    } catch (err) {
+        console.error("Ping test error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal menjalankan ping", details: err.message });
+    }
+});
+
+// New endpoint: Get ping history
+app.get("/api/ping-history", requireAuth, (req, res) => {
+    try {
+        return res.json({ success: true, history: pingHistory });
+    } catch (err) {
+        console.error("Get ping history error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal mendapatkan ping history", details: err.message });
+    }
 });
 
 async function loginToCPE() {
@@ -437,9 +621,27 @@ async function loginToCPE() {
 
     console.log("CPE login response:", JSON.stringify(response.data));
 
-    if (!response.data || response.data.status !== 0) {
-        throw new Error(`Login CPE gagal. Status CPE: ${response.data ? response.data.status : "unknown"}`);
+    if (!response.data) {
+        throw new Error("Login CPE gagal. Respons kosong dari perangkat.");
     }
+
+    const lockTime = Number(response.data.lockTime || 0);
+    if (response.data.status === 1 || response.data.timeout === true) {
+        if (lockTime > 0) {
+            cpeLockUntil = Date.now() + lockTime * 1000;
+        }
+
+        throw new Error(
+            `Login CPE gagal. Perangkat sedang menolak login (${response.data.failedCount ?? 0} percobaan gagal, lockTime ${lockTime} detik). ` +
+            "Periksa password CPE_USER/CPE_PASS atau tunggu hingga lockout selesai."
+        );
+    }
+
+    if (response.data.status !== 0) {
+        throw new Error(`Login CPE gagal. Status CPE: ${response.data.status}`);
+    }
+
+    cpeLockUntil = 0;
 }
 
 async function getCpeCookieValue() {
@@ -535,12 +737,27 @@ async function getDataFromCPE() {
 }
 
 async function getDataFromCPEWithLogin() {
+    if (cpeLockUntil > Date.now()) {
+        const waitSeconds = Math.max(1, Math.ceil((cpeLockUntil - Date.now()) / 1000));
+        throw new Error(`Login CPE sedang terkunci. Tunggu sekitar ${waitSeconds} detik sebelum mencoba lagi.`);
+    }
+
     try {
         return await getDataFromCPE();
     } catch (err) {
+        const message = String(err.message || "");
+
+        if (message.includes("sedang terkunci") || message.includes("Perangkat sedang menolak login")) {
+            throw err;
+        }
+
         console.log("Relogging in to CPE210...");
-        await loginToCPE();
-        return getDataFromCPE();
+        try {
+            await loginToCPE();
+            return await getDataFromCPE();
+        } catch (loginErr) {
+            throw loginErr;
+        }
     }
 }
 
@@ -548,6 +765,7 @@ app.get("/api/cpe", requireAuth, async (req, res) => {
     try {
         const rawData = await getDataFromCPEWithLogin();
         recordAntennaHistory(rawData);
+        await saveAntennaDataToMongo(rawData);
         rawData.waterLevel = waterLevelState.level;
         rawData.waterDistance = waterLevelState.distance;
         rawData.waterStatus = waterLevelState.status;
@@ -560,6 +778,7 @@ app.get("/api/cpe", requireAuth, async (req, res) => {
             error: "Gagal ambil data dari CPE210",
             details: err.message,
             cpeBaseUrl: BASE_URL,
+            cpeLockUntil: cpeLockUntil || null,
             cpeCookieConfigured: Boolean(CPE_COOKIE),
             waterLevel: waterLevelState.level,
             waterDistance: waterLevelState.distance,

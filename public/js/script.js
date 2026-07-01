@@ -88,7 +88,16 @@ document.addEventListener("DOMContentLoaded", function() {
         motorPosition: 0
     };
 
+    const signalTrendState = { labels: [], rssi: [], snr: [] };
+    const pingTrendState = { labels: [], latency: [] };
+    const pingHistoryData = []; // New: Store full ping history for charts
+    const MAX_CHART_POINTS = 18;
+
     let motorPosition = 0;
+    let pingIntervalId = null;
+    let latencyChart = null;
+    let packetComparisonChart = null;
+    let packetLossChart = null;
 
     function formatHistoryTime(timestamp) {
         return timestamp ? new Date(timestamp).toLocaleString("id-ID") : "-";
@@ -101,6 +110,174 @@ document.addEventListener("DOMContentLoaded", function() {
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
+    }
+
+    function toNumber(value) {
+        if (value === null || value === undefined || value === "") {
+            return null;
+        }
+
+        if (typeof value === "number") {
+            return Number.isFinite(value) ? value : null;
+        }
+
+        const text = String(value).trim();
+        if (text === "-" || text.toLowerCase() === "na") {
+            return null;
+        }
+
+        const match = text.match(/[-+]?\d+(?:\.\d+)?/);
+        if (match) {
+            const parsed = Number(match[0]);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
+        const parsed = Number(text);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function formatClockLabel(timestamp) {
+        return new Date(timestamp).toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        });
+    }
+
+    function drawLineChart(canvasId, labels, datasets) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) {
+            return;
+        }
+
+        const context = canvas.getContext("2d");
+        if (!context) {
+            return;
+        }
+
+        const width = canvas.width;
+        const height = canvas.height;
+        context.clearRect(0, 0, width, height);
+
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, width, height);
+
+        const padding = { top: 18, right: 16, bottom: 28, left: 42 };
+        const chartWidth = width - padding.left - padding.right;
+        const chartHeight = height - padding.top - padding.bottom;
+
+        context.strokeStyle = "#dbeafe";
+        context.lineWidth = 1;
+
+        const allValues = datasets.flatMap((dataset) => dataset.data.filter((value) => Number.isFinite(value)));
+        const maxValue = allValues.length ? Math.max(...allValues) : 1;
+        const minValue = allValues.length ? Math.min(...allValues) : 0;
+        const valueRange = Math.max(maxValue - minValue, 1);
+
+        for (let i = 0; i <= 4; i += 1) {
+            const y = padding.top + (chartHeight / 4) * i;
+            context.beginPath();
+            context.moveTo(padding.left, y);
+            context.lineTo(width - padding.right, y);
+            context.stroke();
+
+            const value = maxValue - (valueRange / 4) * i;
+            context.fillStyle = "#5d6d7e";
+            context.font = "11px Segoe UI";
+            context.fillText(Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1), 4, y + 4);
+        }
+
+        context.fillStyle = "#5d6d7e";
+        context.font = "11px Segoe UI";
+        labels.forEach((label, index) => {
+            const x = padding.left + (chartWidth / Math.max(labels.length - 1, 1)) * index;
+            context.fillText(label, x - 18, height - 8);
+        });
+
+        datasets.forEach((dataset) => {
+            if (!dataset.data.length) {
+                return;
+            }
+
+            context.beginPath();
+            dataset.data.forEach((value, index) => {
+                const x = padding.left + (chartWidth / Math.max(dataset.data.length - 1, 1)) * index;
+                const normalized = (value - minValue) / valueRange;
+                const y = padding.top + chartHeight - normalized * chartHeight;
+
+                if (index === 0) {
+                    context.moveTo(x, y);
+                } else {
+                    context.lineTo(x, y);
+                }
+            });
+
+            context.strokeStyle = dataset.color;
+            context.lineWidth = 2;
+            context.stroke();
+        });
+
+        if (!labels.length || !datasets.some((dataset) => dataset.data.length)) {
+            context.fillStyle = "#66798f";
+            context.font = "13px Segoe UI";
+            context.fillText("Belum ada data CPE210 untuk ditampilkan", 48, height / 2);
+        }
+    }
+
+    function updateSignalTrend(data) {
+        const rssiValue = toNumber(data.rssiValueCombined ?? data.rssiValue ?? data.rssi);
+        const snrValue = toNumber(data.snrValue ?? data.snr);
+
+        if (rssiValue !== null || snrValue !== null) {
+            signalTrendState.labels.push(formatClockLabel(Date.now()));
+            signalTrendState.rssi.push(rssiValue ?? 0);
+            signalTrendState.snr.push(snrValue ?? 0);
+
+            if (signalTrendState.labels.length > MAX_CHART_POINTS) {
+                signalTrendState.labels.shift();
+                signalTrendState.rssi.shift();
+                signalTrendState.snr.shift();
+            }
+
+            drawLineChart("cpeRssiChart", signalTrendState.labels, [
+                { label: "RSSI", color: "#0066cc", data: signalTrendState.rssi }
+            ]);
+
+            drawLineChart("cpeSnrChart", signalTrendState.labels, [
+                { label: "SNR", color: "#00b894", data: signalTrendState.snr }
+            ]);
+        }
+    }
+
+    function updatePingChart(result) {
+        if (!result || !Number.isFinite(result.avgLatencyMs)) {
+            return;
+        }
+
+        pingTrendState.labels.push(formatClockLabel(result.timestamp || Date.now()));
+        pingTrendState.latency.push(result.avgLatencyMs);
+
+        if (pingTrendState.labels.length > MAX_CHART_POINTS) {
+            pingTrendState.labels.shift();
+            pingTrendState.latency.shift();
+        }
+
+        drawLineChart("pingChart", pingTrendState.labels, [
+            { label: "Latency", color: "#ff7a59", data: pingTrendState.latency }
+        ]);
+
+        // New: Also update the new chart system
+        pingHistoryData.push(result);
+        if (pingHistoryData.length > 20) {
+            pingHistoryData.shift();
+        }
+        updateAllPingCharts();
+    }
+
+    function resetCharts() {
+        drawLineChart("cpeRssiChart", [], []);
+        drawLineChart("cpeSnrChart", [], []);
+        drawLineChart("pingChart", [], []);
     }
 
     async function loadDashboardPartials() {
@@ -159,6 +336,8 @@ document.addEventListener("DOMContentLoaded", function() {
     
     // Function to update UI with data
     function updateUI(data) {
+        updateSignalTrend(data);
+
         // Network
         document.getElementById("lanIp").innerText = data.lanIpAddress || "-";
         document.getElementById("lanMac").innerText = data.lanMacAddr || "-";
@@ -254,6 +433,399 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
     
+    async function runPingOnce(host, statusElement) {
+        try {
+            const response = await fetch(`/api/ping?host=${encodeURIComponent(host)}&count=4`);
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || "Gagal menjalankan ping");
+            }
+
+            const ping = data.ping || {};
+            const lossText = ping.packetLoss === null || ping.packetLoss === undefined
+                ? "-"
+                : `${ping.packetLoss.toFixed(1)}% loss`;
+            const latencyText = ping.avgLatencyMs === null || ping.avgLatencyMs === undefined
+                ? "-"
+                : `${ping.avgLatencyMs.toFixed(1)} ms`;
+
+            statusElement.innerText = `Hasil terbaru: ${latencyText}, loss ${lossText} (${ping.host || host})`;
+            updatePingChart(ping);
+            return true;
+        } catch (err) {
+            console.error("Ping test failed:", err.message);
+            statusElement.innerText = `Ping gagal: ${err.message}`;
+            return false;
+        }
+    }
+
+    function stopPingLoop() {
+        const startButton = document.getElementById("runPingBtn");
+        const stopButton = document.getElementById("stopPingBtn");
+        const status = document.getElementById("pingStatus");
+
+        if (pingIntervalId) {
+            clearInterval(pingIntervalId);
+            pingIntervalId = null;
+        }
+
+        if (startButton) {
+            startButton.disabled = false;
+            startButton.innerText = "Start Ping";
+        }
+
+        if (stopButton) {
+            stopButton.disabled = true;
+        }
+
+        if (status) {
+            status.innerText = "Ping dihentikan. Klik Start Ping untuk menjalankan terus-menerus lagi.";
+        }
+    }
+
+    // New: Render latency trend chart with Chart.js
+    function renderLatencyTrendChart() {
+        const canvasElement = document.getElementById("latencyTrendChart");
+        if (!canvasElement) return;
+
+        const ctx = canvasElement.getContext("2d");
+        
+        if (latencyChart) {
+            latencyChart.destroy();
+        }
+
+        const labels = pingHistoryData.map((item, idx) => {
+            const date = new Date(item.timestamp);
+            return date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        });
+
+        const latencyValues = pingHistoryData.map(item => item.avgLatencyMs || 0);
+
+        latencyChart = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: "Latency (ms)",
+                    data: latencyValues,
+                    borderColor: "#ff7a59",
+                    backgroundColor: "rgba(255, 122, 89, 0.1)",
+                    tension: 0.4,
+                    fill: true,
+                    pointBackgroundColor: "#ff7a59",
+                    pointBorderColor: "#fff",
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: "top"
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: "Latency (ms)"
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // New: Render packet comparison chart (Sent vs Received)
+    function renderPacketComparisonChart() {
+        const canvasElement = document.getElementById("packetComparisonChart");
+        if (!canvasElement) return;
+
+        const ctx = canvasElement.getContext("2d");
+        
+        if (packetComparisonChart) {
+            packetComparisonChart.destroy();
+        }
+
+        const labels = pingHistoryData.map((item, idx) => `Ping ${pingHistoryData.length - idx}`).reverse();
+        const sentData = pingHistoryData.map(item => item.packetsSent || 0).reverse();
+        const receivedData = pingHistoryData.map(item => item.packetsReceived || 0).reverse();
+
+        packetComparisonChart = new Chart(ctx, {
+            type: "bar",
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: "Sent",
+                        data: sentData,
+                        backgroundColor: "#0066cc",
+                        borderColor: "#0052a3",
+                        borderWidth: 1
+                    },
+                    {
+                        label: "Received",
+                        data: receivedData,
+                        backgroundColor: "#00b894",
+                        borderColor: "#009470",
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: "top"
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+
+    // New: Render packet loss pie chart
+    function renderPacketLossChart() {
+        const canvasElement = document.getElementById("packetLossChart");
+        if (!canvasElement) return;
+
+        const ctx = canvasElement.getContext("2d");
+        
+        if (packetLossChart) {
+            packetLossChart.destroy();
+        }
+
+        // Use latest ping data for pie chart
+        if (pingHistoryData.length === 0) {
+            return;
+        }
+
+        const latestPing = pingHistoryData[pingHistoryData.length - 1];
+        const received = latestPing.packetsReceived || 0;
+        const lost = (latestPing.packetsSent || 0) - received;
+
+        packetLossChart = new Chart(ctx, {
+            type: "doughnut",
+            data: {
+                labels: ["Received", "Lost"],
+                datasets: [{
+                    data: [received, Math.max(0, lost)],
+                    backgroundColor: [
+                        "#00b894",
+                        "#ff7a59"
+                    ],
+                    borderColor: [
+                        "#009470",
+                        "#ff5733"
+                    ],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: "bottom"
+                    }
+                }
+            }
+        });
+    }
+
+    // New: Render ping history table
+    function renderPingHistoryTable() {
+        const historyBody = document.getElementById("pingHistoryBody");
+        if (!historyBody) return;
+
+        if (!pingHistoryData || pingHistoryData.length === 0) {
+            historyBody.innerHTML = '<tr><td colspan="8" class="history-empty">Belum ada history ping</td></tr>';
+            return;
+        }
+
+        historyBody.innerHTML = [...pingHistoryData].reverse().map((item) => {
+            const time = new Date(item.timestamp).toLocaleTimeString("id-ID");
+            const loss = item.packetLoss !== null ? `${item.packetLoss.toFixed(1)}%` : "-";
+            const rttMin = item.minLatencyMs != null ? `${item.minLatencyMs.toFixed(1)} ms` : "-";
+            const rttAvg = item.avgLatencyMs != null ? `${item.avgLatencyMs.toFixed(1)} ms` : "-";
+            const rttMax = item.maxLatencyMs != null ? `${item.maxLatencyMs.toFixed(1)} ms` : "-";
+            const lossClass = item.packetLoss > 0 ? 'style="color:#dc3545;font-weight:600"' : 'style="color:#28a745;font-weight:600"';
+
+            return `
+                <tr>
+                    <td>${time}</td>
+                    <td>${escapeHtml(item.host || "-")}</td>
+                    <td>${item.packetsSent || "-"}</td>
+                    <td>${item.packetsReceived || "-"}</td>
+                    <td ${lossClass}>${loss}</td>
+                    <td>${rttMin}</td>
+                    <td>${rttAvg}</td>
+                    <td>${rttMax}</td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    // New: Update all ping charts
+    function updateAllPingCharts() {
+        renderLatencyTrendChart();
+        renderPacketComparisonChart();
+        renderPacketLossChart();
+        renderPingHistoryTable();
+    }
+
+    // New: Setup ping test button for ping.html
+    function setupPingTestButtonNew() {
+        const pingTestBtn = document.getElementById("pingTestBtn");
+        if (!pingTestBtn) return;
+
+        pingTestBtn.addEventListener("click", async () => {
+            const hostInput = document.getElementById("pingHostInput");
+            const countInput = document.getElementById("pingCountInput");
+            const status = document.getElementById("pingStatus");
+            const resultDiv = document.getElementById("pingResult");
+
+            if (!hostInput || !countInput) return;
+
+            const host = hostInput.value.trim() || "192.168.1.3";
+            const count = parseInt(countInput.value) || 4;
+
+            // Show loading state
+            pingTestBtn.disabled = true;
+            const originalText = pingTestBtn.innerText;
+            pingTestBtn.innerHTML = '<span id="pingTestBtnText">Sedang menjalankan...</span>';
+            status.classList.remove("d-none");
+            status.classList.add("alert-info");
+            document.getElementById("pingStatusText").innerText = `Melakukan ping ke ${host}...`;
+
+            try {
+                const response = await fetch(`/api/ping?host=${encodeURIComponent(host)}&count=${count}`);
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || "Gagal menjalankan ping");
+                }
+
+                const pingResult = data.ping;
+                
+                // Add to history
+                pingHistoryData.push(pingResult);
+                if (pingHistoryData.length > 20) {
+                    pingHistoryData.shift();
+                }
+
+                // Update result display
+                resultDiv.classList.remove("d-none");
+                document.getElementById("resultHost").innerText = pingResult.host || host;
+                document.getElementById("resultSent").innerText = pingResult.packetsSent || "-";
+                document.getElementById("resultReceived").innerText = pingResult.packetsReceived || "-";
+                document.getElementById("resultLoss").innerText = pingResult.packetLoss !== null
+                    ? `${pingResult.packetLoss.toFixed(1)}%`
+                    : "-";
+                document.getElementById("resultMin").innerText = pingResult.minLatencyMs !== null && pingResult.minLatencyMs !== undefined
+                    ? `${pingResult.minLatencyMs.toFixed(1)} ms`
+                    : "-";
+                document.getElementById("resultAvg").innerText = pingResult.avgLatencyMs !== null
+                    ? `${pingResult.avgLatencyMs.toFixed(1)} ms`
+                    : "-";
+                document.getElementById("resultMax").innerText = pingResult.maxLatencyMs !== null && pingResult.maxLatencyMs !== undefined
+                    ? `${pingResult.maxLatencyMs.toFixed(1)} ms`
+                    : "-";
+
+                // Update stat cards
+                const lossVal = pingResult.packetLoss !== null ? `${pingResult.packetLoss.toFixed(1)}%` : "-%";
+                const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+                setEl("statPacketLoss", lossVal);
+                setEl("statSent", pingResult.packetsSent ?? "-");
+                setEl("statReceived", pingResult.packetsReceived ?? "-");
+                setEl("statAvg", pingResult.avgLatencyMs !== null ? `${pingResult.avgLatencyMs.toFixed(1)} ms` : "- ms");
+
+                // Update RTT display
+                setEl("rttMin", pingResult.minLatencyMs != null ? `${pingResult.minLatencyMs.toFixed(1)} ms` : "- ms");
+                setEl("rttAvg", pingResult.avgLatencyMs != null ? `${pingResult.avgLatencyMs.toFixed(1)} ms` : "- ms");
+                setEl("rttMax", pingResult.maxLatencyMs != null ? `${pingResult.maxLatencyMs.toFixed(1)} ms` : "- ms");
+
+                // Update charts
+                updateAllPingCharts();
+
+                // Update status
+                status.classList.remove("alert-info");
+                status.classList.add("alert-success");
+                document.getElementById("pingStatusText").innerText = `✓ Ping berhasil ke ${host}`;
+
+            } catch (err) {
+                console.error("Ping test error:", err);
+                status.classList.remove("alert-info");
+                status.classList.add("alert-danger");
+                document.getElementById("pingStatusText").innerText = `✗ Error: ${err.message}`;
+            } finally {
+                pingTestBtn.disabled = false;
+                pingTestBtn.innerHTML = `<span id="pingTestBtnText">${originalText}</span>`;
+                
+                // Auto-hide status after 5 seconds
+                setTimeout(() => {
+                    if (status.classList.contains("alert-success")) {
+                        status.classList.add("d-none");
+                    }
+                }, 5000);
+            }
+        });
+    }
+
+    async function startPingLoop() {
+        const input = document.getElementById("pingHost");
+        const startButton = document.getElementById("runPingBtn");
+        const stopButton = document.getElementById("stopPingBtn");
+        const status = document.getElementById("pingStatus");
+
+        if (!input || !startButton || !stopButton || !status) {
+            return;
+        }
+
+        const host = input.value.trim() || "192.168.1.3";
+
+        stopPingLoop();
+
+        startButton.disabled = true;
+        startButton.innerText = "Ping Running...";
+        stopButton.disabled = false;
+        status.innerText = `Mengukur ping ke ${host} setiap 2 detik...`;
+
+        await runPingOnce(host, status);
+
+        pingIntervalId = setInterval(() => {
+            runPingOnce(host, status);
+        }, 2000);
+    }
+
+    function setupPingTestButton() {
+        const startButton = document.getElementById("runPingBtn");
+        const stopButton = document.getElementById("stopPingBtn");
+
+        if (!startButton || !stopButton) {
+            // If old buttons not found, try new setup
+            setupPingTestButtonNew();
+            return;
+        }
+
+        startButton.addEventListener("click", startPingLoop);
+        stopButton.addEventListener("click", stopPingLoop);
+        stopButton.disabled = true;
+    }
+
     // Motor Control Functions
     async function controlMotor(direction) {
         const upBtn = document.getElementById("motorUpBtn");
@@ -401,6 +973,26 @@ document.addEventListener("DOMContentLoaded", function() {
         `).join("");
     }
 
+    function renderWaterHistory(items) {
+        const historyBody = document.getElementById("waterHistoryBody");
+        if (!historyBody) {
+            return;
+        }
+
+        if (!items || items.length === 0) {
+            historyBody.innerHTML = '<tr><td colspan="3" class="history-empty">Belum ada riwayat ketinggian air</td></tr>';
+            return;
+        }
+
+        historyBody.innerHTML = items.map((item) => `
+            <tr>
+                <td>${formatHistoryTime(item.timestamp)}</td>
+                <td>${escapeHtml(item.distance ?? item.level ?? "-")} cm</td>
+                <td>${escapeHtml(item.status ?? "-")}</td>
+            </tr>
+        `).join("");
+    }
+
     async function loadHistory() {
         try {
             const response = await fetch("/api/history");
@@ -414,6 +1006,7 @@ document.addEventListener("DOMContentLoaded", function() {
             if (data.success && data.history) {
                 renderServoHistory(data.history.servo);
                 renderAntennaHistory(data.history.antenna);
+                renderWaterHistory(data.history.water);
             }
         } catch (err) {
             console.warn("Failed to fetch history data:", err.message);
@@ -433,6 +1026,9 @@ document.addEventListener("DOMContentLoaded", function() {
         }
 
         await loadDashboardPartials();
+        setupPingTestButton();
+        setupPingTestButtonNew(); // New: Setup ping monitoring for new ping.html
+        resetCharts();
         setupMotorControls();
         updateUI(emptyData);
         loadData();
