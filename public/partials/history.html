@@ -66,4 +66,30 @@
             </div>
         </div>
     </div>
+
+    <div class="col-12">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">QOS</span> History QoS</div>
+            <div class="card-body">
+                <p class="chart-caption">Riwayat QoS tersimpan dari pengukuran packet loss, throughput, delay, dan jitter.</p>
+                <div class="history-table-wrap">
+                    <table class="table history-table">
+                        <thead>
+                            <tr>
+                                <th>Waktu</th>
+                                <th>Packet Loss</th>
+                                <th>Throughput</th>
+                                <th>Delay</th>
+                                <th>Jitter</th>
+                                <th>Host</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qosMainHistoryBody" class="js-qos-history-body">
+                            <tr><td colspan="6" class="history-empty">Belum ada riwayat QoS</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>

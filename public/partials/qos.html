@@ -1,0 +1,97 @@
+<div class="row g-4">
+    <div class="col-lg-3 col-md-6">
+        <div class="card h-100 qos-stat-card">
+            <div class="card-header"><span class="icon">LOSS</span> Packet Loss</div>
+            <div class="card-body">
+                <span class="qos-value qos-loss" id="qosPacketLoss">-</span>
+                <span class="qos-meta">Paket hilang</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card h-100 qos-stat-card">
+            <div class="card-header"><span class="icon">THR</span> Throughput</div>
+            <div class="card-body">
+                <span class="qos-value" id="qosThroughput">-</span>
+                <span class="qos-meta">RX utama dari CPE</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card h-100 qos-stat-card">
+            <div class="card-header"><span class="icon">DLY</span> Delay</div>
+            <div class="card-body">
+                <span class="qos-value" id="qosDelay">-</span>
+                <span class="qos-meta">Rata-rata ping</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card h-100 qos-stat-card">
+            <div class="card-header"><span class="icon">JIT</span> Jitter</div>
+            <div class="card-body">
+                <span class="qos-value" id="qosJitter">-</span>
+                <span class="qos-meta">Variasi antar delay</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">RATE</span> Detail Throughput</div>
+            <div class="card-body">
+                <p><span class="label-value">TX Throughput:</span><br><span class="value" id="qosTxThroughput">-</span></p>
+                <p><span class="label-value">RX Throughput:</span><br><span class="value" id="qosRxThroughput">-</span></p>
+                <p><span class="label-value">Target Host:</span><br><span class="value" id="qosHost">-</span></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">PING</span> Detail Delay</div>
+            <div class="card-body">
+                <p><span class="label-value">Packet Sent:</span><br><span class="value" id="qosSent">-</span></p>
+                <p><span class="label-value">Packet Received:</span><br><span class="value" id="qosReceived">-</span></p>
+                <p><span class="label-value">Update Terakhir:</span><br><span class="value" id="qosUpdatedAt">-</span></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">Chart QoS</span></div>
+            <div class="card-body">
+                <canvas id="qosTrendChart" width="1200" height="280" class="chart-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card h-100">
+            <div class="card-header"><span class="icon">HIS</span> History QoS</div>
+            <div class="card-body">
+                <div class="history-table-wrap">
+                    <table class="table history-table qos-history-table">
+                        <thead>
+                            <tr>
+                                <th>Waktu</th>
+                                <th>Packet Loss</th>
+                                <th>Throughput</th>
+                                <th>Delay</th>
+                                <th>Jitter</th>
+                                <th>Host</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qosHistoryBody" class="js-qos-history-body">
+                            <tr><td colspan="6" class="history-empty">Belum ada riwayat QoS</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

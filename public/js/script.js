@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const sidebar = document.getElementById("sidebar");
     const mainContent = document.querySelector(".main-content");
 
+    // Sidebar helpers: mengatur tampilan menu samping pada layar besar dan kecil.
     function setSidebarExpanded(isExpanded) {
         if (!hamburgerBtn) {
             return;
@@ -53,6 +54,7 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
+    // UI helpers: update waktu dashboard dan status refresh.
     function updateDashboardClock() {
         const dashboardClock = document.getElementById("dashboardClock");
         if (!dashboardClock) {
@@ -80,6 +82,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // Data default untuk halaman saat API offline atau belum ada data.
     const emptyData = {
         waterLevel: 0,
         waterDistance: null,
@@ -90,6 +93,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     const signalTrendState = { labels: [], rssi: [], snr: [] };
     const pingTrendState = { labels: [], latency: [] };
+    const qosTrendState = { labels: [], packetLoss: [], delay: [], jitter: [], throughput: [] };
     const pingHistoryData = []; // New: Store full ping history for charts
     const MAX_CHART_POINTS = 18;
 
@@ -99,6 +103,7 @@ document.addEventListener("DOMContentLoaded", function() {
     let packetComparisonChart = null;
     let packetLossChart = null;
 
+    // Utilitas kecil: format timestamp dan sanitasi teks untuk HTML.
     function formatHistoryTime(timestamp) {
         return timestamp ? new Date(timestamp).toLocaleString("id-ID") : "-";
     }
@@ -144,6 +149,21 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
+    function formatNumber(value, digits = 1) {
+        const number = toNumber(value);
+        return number === null ? "-" : number.toFixed(digits);
+    }
+
+    function formatMetric(value, unit, digits = 1) {
+        const number = toNumber(value);
+        if (number === null) {
+            return "-";
+        }
+
+        return unit === "%" ? `${number.toFixed(digits)}%` : `${number.toFixed(digits)} ${unit}`;
+    }
+
+    // Chart renderer: menggambar grafik garis sederhana langsung ke elemen <canvas>.
     function drawLineChart(canvasId, labels, datasets) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) {
@@ -224,6 +244,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // Signal trend: update data RSSI dan SNR untuk chart CPE.
     function updateSignalTrend(data) {
         const rssiValue = toNumber(data.rssiValueCombined ?? data.rssiValue ?? data.rssi);
         const snrValue = toNumber(data.snrValue ?? data.snr);
@@ -249,6 +270,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // Ping chart: tambahkan hasil ping ke grafik latency.
     function updatePingChart(result) {
         if (!result || !Number.isFinite(result.avgLatencyMs)) {
             return;
@@ -278,8 +300,10 @@ document.addEventListener("DOMContentLoaded", function() {
         drawLineChart("cpeRssiChart", [], []);
         drawLineChart("cpeSnrChart", [], []);
         drawLineChart("pingChart", [], []);
+        drawLineChart("qosTrendChart", [], []);
     }
 
+    // Partial loader: muat ulang HTML kecil untuk setiap tab dashboard.
     async function loadDashboardPartials() {
         const partialContainers = document.querySelectorAll("[data-partial]:not([data-partial-loaded='true'])");
 
@@ -312,6 +336,7 @@ document.addEventListener("DOMContentLoaded", function() {
         await loadDashboardPartials();
     }
 
+    // Session checker: pastikan user masih login sebelum tampilkan dashboard.
     async function checkSession() {
         try {
             const response = await fetch("/api/me");
@@ -335,6 +360,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     
     // Function to update UI with data
+    // UI updater: isi seluruh tampilan dashboard dengan data dari server.
     function updateUI(data) {
         updateSignalTrend(data);
 
@@ -367,10 +393,11 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     
     // Function to update water level display
+    // Water level renderer: update tampilan level dan status air.
     function updateWaterLevel(water) {
         const level = water.level;
         document.getElementById("waterLevel").innerText = level;
-        
+
         // Update progress bar
         const maxLevel = 250;
         const percentage = Math.min((level / maxLevel) * 100, 100);
@@ -378,26 +405,30 @@ document.addEventListener("DOMContentLoaded", function() {
         
         const statusElement = document.querySelector("#waterLevel").parentElement.parentElement.querySelector("#waterStatus");
 
-        if (water.status) {
+            if (water.status) {
             statusElement.innerText = water.status;
         } else if (water.distance === null || water.distance === undefined) {
             statusElement.innerText = "Menunggu data ESP32";
-        } else if (level < 130) {
-            statusElement.innerText = "Tinggi";
-        } else if (level <= 160) {
-            statusElement.innerText = "Normal";
+        } else if (level >= 52 && level <= 75) {
+            statusElement.innerText = "Aman";
+        } else if (level >= 42 && level <= 51) {
+            statusElement.innerText = "Siaga";
+        } else if (level >= 20 && level <= 41) {
+            statusElement.innerText = "Bahaya";
+        } else if (level > 75) {
+            statusElement.innerText = "Aman";
         } else {
-            statusElement.innerText = "Rendah";
+            statusElement.innerText = "Bahaya";
         }
 
-        if (statusElement.innerText === "Tinggi") {
-            statusElement.style.color = "#dc3545";
-        } else if (statusElement.innerText === "Normal") {
-            statusElement.style.color = "#ffc107";
-        } else if (statusElement.innerText === "Rendah") {
+        if (statusElement.innerText === "Aman") {
             statusElement.style.color = "#28a745";
-        } else {
+        } else if (statusElement.innerText === "Siaga") {
             statusElement.style.color = "#ffc107";
+        } else if (statusElement.innerText === "Bahaya") {
+            statusElement.style.color = "#dc3545";
+        } else {
+            statusElement.style.color = "#66798f";
         }
 
         const lastUpdateElement = document.getElementById("waterLastUpdated");
@@ -409,6 +440,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     
     // Function to fetch data from API
+    // Fetch data CPE: panggil endpoint `/api/cpe` dan tampilkan hasilnya di dashboard.
     async function loadData() {
         try {
             const response = await fetch("/api/cpe");
@@ -432,7 +464,100 @@ document.addEventListener("DOMContentLoaded", function() {
             updateUI(emptyData);
         }
     }
+
+    function updateQosTrend(qos) {
+        if (!qos) {
+            return;
+        }
+
+        qosTrendState.labels.push(formatClockLabel(qos.timestamp || Date.now()));
+        qosTrendState.packetLoss.push(toNumber(qos.packetLoss) ?? 0);
+        qosTrendState.delay.push(toNumber(qos.delayMs) ?? 0);
+        qosTrendState.jitter.push(toNumber(qos.jitterMs) ?? 0);
+        qosTrendState.throughput.push(toNumber(qos.throughputMbps) ?? 0);
+
+        if (qosTrendState.labels.length > MAX_CHART_POINTS) {
+            qosTrendState.labels.shift();
+            qosTrendState.packetLoss.shift();
+            qosTrendState.delay.shift();
+            qosTrendState.jitter.shift();
+            qosTrendState.throughput.shift();
+        }
+
+        drawLineChart("qosTrendChart", qosTrendState.labels, [
+            { label: "Packet Loss (%)", color: "#ff5c77", data: qosTrendState.packetLoss },
+            { label: "Delay (ms)", color: "#0066cc", data: qosTrendState.delay },
+            { label: "Jitter (ms)", color: "#00b894", data: qosTrendState.jitter },
+            { label: "Throughput (Mbps)", color: "#ff9f1c", data: qosTrendState.throughput }
+        ]);
+    }
+
+    function renderQosHistory(items) {
+        const historyBodies = document.querySelectorAll(".js-qos-history-body");
+        if (!historyBodies.length) {
+            return;
+        }
+
+        if (!items || items.length === 0) {
+            historyBodies.forEach((historyBody) => {
+                historyBody.innerHTML = '<tr><td colspan="6" class="history-empty">Belum ada riwayat QoS</td></tr>';
+            });
+            return;
+        }
+
+        const rows = items.map((item) => `
+            <tr>
+                <td>${formatHistoryTime(item.timestamp)}</td>
+                <td>${formatMetric(item.packetLoss, "%")}</td>
+                <td>${formatMetric(item.throughputMbps, "Mbps")}</td>
+                <td>${formatMetric(item.delayMs, "ms")}</td>
+                <td>${formatMetric(item.jitterMs, "ms")}</td>
+                <td>${escapeHtml(item.host || "-")}</td>
+            </tr>
+        `).join("");
+
+        historyBodies.forEach((historyBody) => {
+            historyBody.innerHTML = rows;
+        });
+    }
+
+    function updateQosUI(qos, historyItems) {
+        if (!qos) {
+            return;
+        }
+
+        setText("qosPacketLoss", formatMetric(qos.packetLoss, "%"));
+        setText("qosThroughput", formatMetric(qos.throughputMbps, "Mbps"));
+        setText("qosDelay", formatMetric(qos.delayMs, "ms"));
+        setText("qosJitter", formatMetric(qos.jitterMs, "ms"));
+        setText("qosTxThroughput", formatMetric(qos.txThroughputMbps, "Mbps"));
+        setText("qosRxThroughput", formatMetric(qos.rxThroughputMbps, "Mbps"));
+        setText("qosHost", qos.host || "-");
+        setText("qosSent", qos.packetsSent ?? "-");
+        setText("qosReceived", qos.packetsReceived ?? "-");
+        setText("qosUpdatedAt", qos.timestamp ? new Date(qos.timestamp).toLocaleString("id-ID") : "-");
+
+        updateQosTrend(qos);
+        renderQosHistory(historyItems);
+    }
+
+    async function loadQosData() {
+        try {
+            const response = await fetch("/api/qos");
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || "Gagal mengambil data QoS");
+            }
+
+            updateQosUI(data.qos, data.history);
+        } catch (err) {
+            console.warn("Failed to fetch QoS data:", err.message);
+            setText("qosUpdatedAt", "QoS offline");
+        }
+    }
     
+    // Ping helper: jalankan ping sekali dan update indikator serta grafik.
     async function runPingOnce(host, statusElement) {
         try {
             const response = await fetch(`/api/ping?host=${encodeURIComponent(host)}&count=4`);
@@ -460,6 +585,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // Ping loop control: berhentikan loop ping otomatis.
     function stopPingLoop() {
         const startButton = document.getElementById("runPingBtn");
         const stopButton = document.getElementById("stopPingBtn");
@@ -485,6 +611,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // New: Render latency trend chart with Chart.js
+    // Chart rendering untuk ping: grafik latency, sent/received, dan lost.
     function renderLatencyTrendChart() {
         const canvasElement = document.getElementById("latencyTrendChart");
         if (!canvasElement) return;
@@ -647,6 +774,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // New: Render ping history table
+    // Tabel history ping: tampilkan data hasil ping terakhir.
     function renderPingHistoryTable() {
         const historyBody = document.getElementById("pingHistoryBody");
         if (!historyBody) return;
@@ -680,6 +808,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // New: Update all ping charts
+    // Satukan semua chart ping menjadi satu fungsi update.
     function updateAllPingCharts() {
         renderLatencyTrendChart();
         renderPacketComparisonChart();
@@ -687,7 +816,128 @@ document.addEventListener("DOMContentLoaded", function() {
         renderPingHistoryTable();
     }
 
-    // New: Setup ping test button for ping.html
+    function setText(id, value) {
+        const element = document.getElementById(id);
+        if (element) {
+            element.innerText = value;
+        }
+    }
+
+    function updatePingResultDisplay(pingResult, host) {
+        const resultDiv = document.getElementById("pingResult");
+        if (resultDiv) {
+            resultDiv.classList.remove("d-none");
+        }
+
+        setText("resultHost", pingResult.host || host);
+        setText("resultSent", pingResult.packetsSent ?? "-");
+        setText("resultReceived", pingResult.packetsReceived ?? "-");
+        setText("resultLoss", pingResult.packetLoss !== null && pingResult.packetLoss !== undefined
+            ? `${pingResult.packetLoss.toFixed(1)}%`
+            : "-");
+        setText("resultMin", pingResult.minLatencyMs !== null && pingResult.minLatencyMs !== undefined
+            ? `${pingResult.minLatencyMs.toFixed(1)} ms`
+            : "-");
+        setText("resultAvg", pingResult.avgLatencyMs !== null && pingResult.avgLatencyMs !== undefined
+            ? `${pingResult.avgLatencyMs.toFixed(1)} ms`
+            : "-");
+        setText("resultMax", pingResult.maxLatencyMs !== null && pingResult.maxLatencyMs !== undefined
+            ? `${pingResult.maxLatencyMs.toFixed(1)} ms`
+            : "-");
+
+        const lossVal = pingResult.packetLoss !== null && pingResult.packetLoss !== undefined
+            ? `${pingResult.packetLoss.toFixed(1)}%`
+            : "-%";
+
+        setText("statPacketLoss", lossVal);
+        setText("statSent", pingResult.packetsSent ?? "-");
+        setText("statReceived", pingResult.packetsReceived ?? "-");
+        setText("statAvg", pingResult.avgLatencyMs !== null && pingResult.avgLatencyMs !== undefined
+            ? `${pingResult.avgLatencyMs.toFixed(1)} ms`
+            : "- ms");
+
+        setText("rttMin", pingResult.minLatencyMs !== null && pingResult.minLatencyMs !== undefined
+            ? `${pingResult.minLatencyMs.toFixed(1)} ms`
+            : "- ms");
+        setText("rttAvg", pingResult.avgLatencyMs !== null && pingResult.avgLatencyMs !== undefined
+            ? `${pingResult.avgLatencyMs.toFixed(1)} ms`
+            : "- ms");
+        setText("rttMax", pingResult.maxLatencyMs !== null && pingResult.maxLatencyMs !== undefined
+            ? `${pingResult.maxLatencyMs.toFixed(1)} ms`
+            : "- ms");
+
+        updateAllPingCharts();
+    }
+
+    async function fetchPingResult(host, count, status) {
+        if (status) {
+            status.classList.remove("d-none");
+            status.classList.remove("alert-danger");
+            status.classList.add("alert-info");
+            setText("pingStatusText", `Melakukan ping ke ${host}...`);
+        }
+
+        const response = await fetch(`/api/ping?host=${encodeURIComponent(host)}&count=${count}`);
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || "Gagal menjalankan ping");
+        }
+
+        const pingResult = data.ping;
+        pingHistoryData.push(pingResult);
+        if (pingHistoryData.length > 20) {
+            pingHistoryData.shift();
+        }
+
+        updatePingResultDisplay(pingResult, host);
+
+        if (status) {
+            status.classList.remove("alert-info");
+            status.classList.add("alert-success");
+            setText("pingStatusText", `✓ Ping berhasil ke ${host}`);
+        }
+
+        return pingResult;
+    }
+
+    async function startAutoPingMonitoring() {
+        const hostInput = document.getElementById("pingHostInput");
+        const countInput = document.getElementById("pingCountInput");
+        const status = document.getElementById("pingStatus");
+
+        if (!hostInput || !countInput || !status) {
+            return;
+        }
+
+        const host = hostInput.value.trim() || "192.168.1.3";
+        const count = parseInt(countInput.value, 10) || 4;
+
+        if (pingIntervalId) {
+            clearInterval(pingIntervalId);
+        }
+
+        try {
+            await fetchPingResult(host, count, status);
+        } catch (err) {
+            console.error("Auto ping failed:", err.message);
+            if (status) {
+                status.classList.remove("alert-info");
+                status.classList.add("alert-danger");
+                setText("pingStatusText", `✗ Error: ${err.message}`);
+            }
+        }
+
+        pingIntervalId = setInterval(async () => {
+            try {
+                await fetchPingResult(host, count, status);
+            } catch (err) {
+                console.error("Auto ping interval failed:", err.message);
+            }
+        }, 3000);
+    }
+
+    // Button setup untuk halaman ping khusus.
     function setupPingTestButtonNew() {
         const pingTestBtn = document.getElementById("pingTestBtn");
         if (!pingTestBtn) return;
@@ -712,65 +962,12 @@ document.addEventListener("DOMContentLoaded", function() {
             document.getElementById("pingStatusText").innerText = `Melakukan ping ke ${host}...`;
 
             try {
-                const response = await fetch(`/api/ping?host=${encodeURIComponent(host)}&count=${count}`);
-                const data = await response.json();
-
-                if (!response.ok || !data.success) {
-                    throw new Error(data.message || "Gagal menjalankan ping");
-                }
-
-                const pingResult = data.ping;
-                
-                // Add to history
-                pingHistoryData.push(pingResult);
-                if (pingHistoryData.length > 20) {
-                    pingHistoryData.shift();
-                }
-
-                // Update result display
-                resultDiv.classList.remove("d-none");
-                document.getElementById("resultHost").innerText = pingResult.host || host;
-                document.getElementById("resultSent").innerText = pingResult.packetsSent || "-";
-                document.getElementById("resultReceived").innerText = pingResult.packetsReceived || "-";
-                document.getElementById("resultLoss").innerText = pingResult.packetLoss !== null
-                    ? `${pingResult.packetLoss.toFixed(1)}%`
-                    : "-";
-                document.getElementById("resultMin").innerText = pingResult.minLatencyMs !== null && pingResult.minLatencyMs !== undefined
-                    ? `${pingResult.minLatencyMs.toFixed(1)} ms`
-                    : "-";
-                document.getElementById("resultAvg").innerText = pingResult.avgLatencyMs !== null
-                    ? `${pingResult.avgLatencyMs.toFixed(1)} ms`
-                    : "-";
-                document.getElementById("resultMax").innerText = pingResult.maxLatencyMs !== null && pingResult.maxLatencyMs !== undefined
-                    ? `${pingResult.maxLatencyMs.toFixed(1)} ms`
-                    : "-";
-
-                // Update stat cards
-                const lossVal = pingResult.packetLoss !== null ? `${pingResult.packetLoss.toFixed(1)}%` : "-%";
-                const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
-                setEl("statPacketLoss", lossVal);
-                setEl("statSent", pingResult.packetsSent ?? "-");
-                setEl("statReceived", pingResult.packetsReceived ?? "-");
-                setEl("statAvg", pingResult.avgLatencyMs !== null ? `${pingResult.avgLatencyMs.toFixed(1)} ms` : "- ms");
-
-                // Update RTT display
-                setEl("rttMin", pingResult.minLatencyMs != null ? `${pingResult.minLatencyMs.toFixed(1)} ms` : "- ms");
-                setEl("rttAvg", pingResult.avgLatencyMs != null ? `${pingResult.avgLatencyMs.toFixed(1)} ms` : "- ms");
-                setEl("rttMax", pingResult.maxLatencyMs != null ? `${pingResult.maxLatencyMs.toFixed(1)} ms` : "- ms");
-
-                // Update charts
-                updateAllPingCharts();
-
-                // Update status
-                status.classList.remove("alert-info");
-                status.classList.add("alert-success");
-                document.getElementById("pingStatusText").innerText = `✓ Ping berhasil ke ${host}`;
-
+                await fetchPingResult(host, count, status);
             } catch (err) {
                 console.error("Ping test error:", err);
                 status.classList.remove("alert-info");
                 status.classList.add("alert-danger");
-                document.getElementById("pingStatusText").innerText = `✗ Error: ${err.message}`;
+                setText("pingStatusText", `✗ Error: ${err.message}`);
             } finally {
                 pingTestBtn.disabled = false;
                 pingTestBtn.innerHTML = `<span id="pingTestBtnText">${originalText}</span>`;
@@ -785,6 +982,7 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
+    // Jalankan monitoring ping otomatis setiap 2 detik.
     async function startPingLoop() {
         const input = document.getElementById("pingHost");
         const startButton = document.getElementById("runPingBtn");
@@ -811,6 +1009,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }, 2000);
     }
 
+    // Setup tombol ping utama pada dashboard.
     function setupPingTestButton() {
         const startButton = document.getElementById("runPingBtn");
         const stopButton = document.getElementById("stopPingBtn");
@@ -827,6 +1026,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // Motor Control Functions
+    // Motor controller: kirim perintah `up`/`down` ke endpoint `/api/motor`.
     async function controlMotor(direction) {
         const upBtn = document.getElementById("motorUpBtn");
         const downBtn = document.getElementById("motorDownBtn");
@@ -878,6 +1078,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
     
+    // Setup tombol motor di UI untuk menggerakkan servo ke atas/bawah.
     function setupMotorControls() {
         const motorUpBtn = document.getElementById("motorUpBtn");
         const motorDownBtn = document.getElementById("motorDownBtn");
@@ -897,6 +1098,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     
     // Logout function
+    // Logout handler: panggil API logout lalu redirect ke halaman login.
     async function logout() {
         try {
             await fetch("/api/logout", { method: "POST" });
@@ -907,6 +1109,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // Load water status: ambil data air dari endpoint `/api/water`.
     async function loadWaterData() {
         try {
             const response = await fetch("/api/water");
@@ -925,6 +1128,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
+    // Render history servo: tampilkan riwayat pergerakan motor.
     function renderServoHistory(items) {
         const historyBody = document.getElementById("servoHistoryBody");
         if (!historyBody) {
@@ -973,6 +1177,7 @@ document.addEventListener("DOMContentLoaded", function() {
         `).join("");
     }
 
+    // Render history air: tampilkan daftar riwayat level air yang terkini.
     function renderWaterHistory(items) {
         const historyBody = document.getElementById("waterHistoryBody");
         if (!historyBody) {
@@ -993,6 +1198,7 @@ document.addEventListener("DOMContentLoaded", function() {
         `).join("");
     }
 
+    // Load history dari server dan render pada tabel-tabel dashboard.
     async function loadHistory() {
         try {
             const response = await fetch("/api/history");
@@ -1007,6 +1213,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 renderServoHistory(data.history.servo);
                 renderAntennaHistory(data.history.antenna);
                 renderWaterHistory(data.history.water);
+                renderQosHistory(data.history.qos);
             }
         } catch (err) {
             console.warn("Failed to fetch history data:", err.message);
@@ -1019,6 +1226,7 @@ document.addEventListener("DOMContentLoaded", function() {
         logoutBtn.addEventListener("click", logout);
     }
     
+    // Inisialisasi dashboard: cek sesi, muat partial, pasang event, dan mulai polling.
     async function initDashboard() {
         const isLoggedIn = await checkSession();
         if (!isLoggedIn) {
@@ -1027,15 +1235,16 @@ document.addEventListener("DOMContentLoaded", function() {
 
         await loadDashboardPartials();
         setupPingTestButton();
-        setupPingTestButtonNew(); // New: Setup ping monitoring for new ping.html
         resetCharts();
         setupMotorControls();
         updateUI(emptyData);
         loadData();
         loadWaterData();
+        loadQosData();
         loadHistory();
         setInterval(loadData, 3000);
         setInterval(loadWaterData, 1000);
+        setInterval(loadQosData, 5000);
     }
 
     setupSidebar();

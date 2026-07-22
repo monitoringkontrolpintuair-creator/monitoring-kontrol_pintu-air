@@ -74,6 +74,18 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="signupEmail">Email</label>
+                    <input
+                        type="email"
+                        id="signupEmail"
+                        name="email"
+                        placeholder="Alamat email"
+                        required
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="form-group">
                     <label for="signupPassword">Password</label>
                     <input
                         type="password"
@@ -93,6 +105,32 @@
             <p class="auth-hint">Sudah punya akun? <button type="button" class="auth-link" id="showLoginBtn">Login</button></p>
         </section>
     </main>
+
+    <!-- Verification Modal (OTP) -->
+    <div id="verificationModal" class="otp-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:1050;">
+        <div class="otp-card" style="background:#fff; padding:20px; border-radius:8px; width:320px; max-width:90%; box-shadow:0 6px 24px rgba(0,0,0,0.2);">
+            <h5 style="margin-top:0;">Verifikasi Email</h5>
+            <p id="verificationInfo">Masukkan kode (OTP) yang dikirimkan ke email Anda.</p>
+
+            <div class="form-group">
+                <label for="verificationIdentifier">Username / Email</label>
+                <input type="text" id="verificationIdentifier" readonly style="width:100%; padding:8px; margin-top:6px; margin-bottom:10px;">
+            </div>
+
+            <div class="form-group">
+                <label for="verificationCode">Kode OTP</label>
+                <input type="text" id="verificationCode" placeholder="6-digit kode" style="width:100%; padding:8px; margin-top:6px; margin-bottom:10px;">
+            </div>
+
+            <div style="display:flex; gap:8px; justify-content:flex-end; align-items:center;">
+                <button id="resendCodeBtn" class="btn btn-link" style="padding:6px 8px;">Kirim Ulang</button>
+                <button id="verifyCodeBtn" class="btn btn-primary" style="padding:6px 12px;">Verifikasi</button>
+            </div>
+
+            <div id="verificationMessage" style="margin-top:10px; display:none;"></div>
+            <button id="closeVerificationBtn" class="btn btn-sm btn-secondary" style="margin-top:12px;">Tutup</button>
+        </div>
+    </div>
 
     <script src="js/login.js"></script>
 </body>

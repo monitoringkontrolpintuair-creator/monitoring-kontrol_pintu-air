@@ -1,10 +1,12 @@
 ﻿process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+require("dotenv").config();
 
 const express = require("express");
 const axios = require("axios");
 const { wrapper } = require("axios-cookiejar-support");
 const tough = require("tough-cookie");
 const { MongoClient } = require("mongodb");
+const nodemailer = require("nodemailer");
 const path = require("path");
 const crypto = require("crypto");
 const { exec } = require("child_process");
@@ -15,8 +17,41 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017";
 const DB_NAME = process.env.DB_NAME || "zeno_dashboard";
 const publicPath = path.join(__dirname, "../public");
 
+// Email / SMTP configuration (set via environment variables)
+const SMTP_HOST = process.env.SMTP_HOST || "";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const SMTP_SECURE = (process.env.SMTP_SECURE || "false").toLowerCase() === "true";
+
+let mailTransporter = null;
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || "no-reply@example.com";
+
+if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
+    mailTransporter = nodemailer.createTransport({
+        host: SMTP_HOST,
+        port: SMTP_PORT,
+        secure: SMTP_SECURE,
+        auth: {
+            user: SMTP_USER,
+            pass: SMTP_PASS
+        }
+    });
+
+    mailTransporter.verify().then(() => {
+        console.log(`SMTP configured: host=${SMTP_HOST}, user=${SMTP_USER}, secure=${SMTP_SECURE}`);
+    }).catch((err) => {
+        console.error("SMTP verification failed:", err && err.message ? err.message : err);
+        mailTransporter = null;
+    });
+} else {
+    console.warn("SMTP not configured; skipping sending verification email.");
+}
+
 let usersCollection;
 let sensorDataCollection;
+let antennaDataCollection;
+let qosDataCollection;
 
 const jar = new tough.CookieJar();
 const client = wrapper(axios.create({
@@ -30,6 +65,7 @@ const DEVICE_USER = process.env.CPE_USER || "admin";
 const DEVICE_PASS = process.env.CPE_PASS || "1234";
 const CPE_COOKIE = process.env.CPE_COOKIE || "";
 const ESP32_BASE_URL = process.env.ESP32_BASE_URL || "http://192.168.1.10";
+const QOS_TARGET_HOST = process.env.QOS_TARGET_HOST || process.env.CPE_BASE_URL || "192.168.1.2";
 let cpeCookieOverride = CPE_COOKIE;
 let cpePasswordEncoder;
 let cpeLockUntil = 0;
@@ -62,19 +98,59 @@ const HISTORY_LIMIT = 50;
 const historyState = {
     servo: [],
     antenna: [],
-    water: []
+    water: [],
+    qos: []
 };
 const MAX_CHART_POINTS = 20;
 const pingHistory = [];
 const WATER_HISTORY_THRESHOLD_CM = 2;
 let lastAntennaSnapshot = null;
 let lastWaterSnapshot = null;
+let latestCpeData = null;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 function hashPassword(password) {
     return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+function generateVerificationCode() {
+    // 6-digit numeric code
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function hashCode(code) {
+    return crypto.createHash("sha256").update(String(code)).digest("hex");
+}
+
+async function sendVerificationEmail(email, code, username) {
+    if (!mailTransporter) {
+        console.warn("SMTP not configured; skipping sending verification email to", email);
+        // For local development, print the OTP to console so developer can test verification.
+        try {
+            console.info(`DEV OTP for ${email}: ${code}`);
+        } catch (e) {
+            // ignore logging errors
+        }
+        return true;
+    }
+
+    const mailOptions = {
+        from: process.env.SMTP_FROM || SMTP_USER,
+        to: email,
+        subject: "[Dashboard] Kode Verifikasi Email",
+        text: `Halo ${username || "pengguna"},\n\nGunakan kode berikut untuk memverifikasi email Anda: ${code}\nKode berlaku 15 menit.\n\nJika Anda tidak meminta kode ini, abaikan email ini.`,
+        html: `<p>Halo ${username || "pengguna"},</p><p>Gunakan kode berikut untuk memverifikasi email Anda:</p><h2>${code}</h2><p>Kode berlaku 15 menit.</p>`
+    };
+
+    try {
+        await mailTransporter.sendMail(mailOptions);
+        return true;
+    } catch (err) {
+        console.error("Gagal mengirim email verifikasi:", err.message);
+        return false;
+    }
 }
 
 function getCookie(req, name) {
@@ -192,6 +268,14 @@ function parsePingOutput(output) {
     const receivedMatch = normalized.match(/Received\s*=\s*(\d+)/i) || normalized.match(/(\d+)\s+packets received/i);
     const lossMatch = normalized.match(/Lost\s*=\s*(\d+)\s*\(([^)]+)%\s*loss\)/i) || normalized.match(/loss\s*=\s*(\d+(?:\.\d+)?)%/i) || normalized.match(/(\d+(?:\.\d+)?)%\s*packet loss/i);
     const avgMatch = normalized.match(/Average\s*=\s*(\d+(?:\.\d+)?)\s*ms/i) || normalized.match(/min\/avg\/max\/mdev.*?\/\s*([\d.]+)\//i);
+    const minMatch = normalized.match(/Minimum\s*=\s*(\d+(?:\.\d+)?)\s*ms/i) || normalized.match(/min\/avg\/max\/mdev\s*=\s*([\d.]+)\//i);
+    const maxMatch = normalized.match(/Maximum\s*=\s*(\d+(?:\.\d+)?)\s*ms/i) || normalized.match(/min\/avg\/max\/mdev\s*=\s*[\d.]+\/[\d.]+\/([\d.]+)\//i);
+    const latencySamples = Array.from(normalized.matchAll(/(?:time|waktu)[=<]\s*(\d+(?:\.\d+)?)\s*ms/gi))
+        .map((match) => Number(match[1]))
+        .filter((value) => Number.isFinite(value));
+    const jitterMs = latencySamples.length > 1
+        ? latencySamples.slice(1).reduce((total, value, index) => total + Math.abs(value - latencySamples[index]), 0) / (latencySamples.length - 1)
+        : null;
 
     const packetLoss = lossMatch
         ? Number((lossMatch[2] ?? lossMatch[1]).replace(/[^\d.]/g, ""))
@@ -201,7 +285,11 @@ function parsePingOutput(output) {
         packetsSent: sentMatch ? Number(sentMatch[1] || sentMatch[2]) : null,
         packetsReceived: receivedMatch ? Number(receivedMatch[1] || receivedMatch[2]) : null,
         packetLoss: Number.isFinite(packetLoss) ? packetLoss : null,
+        minLatencyMs: minMatch ? Number(minMatch[1] || minMatch[2]) : null,
         avgLatencyMs: avgMatch ? Number(avgMatch[1] || avgMatch[2]) : null,
+        maxLatencyMs: maxMatch ? Number(maxMatch[1] || maxMatch[2]) : null,
+        jitterMs,
+        latencySamples,
         raw: normalized.trim()
     };
 }
@@ -213,14 +301,108 @@ function addPingHistory(result) {
     }
 }
 
-async function saveAntennaDataToMongo(data) {
-    if (!sensorDataCollection) {
-        console.warn("MongoDB sensorDataCollection belum siap, data antenna tidak disimpan ke database.");
+function getLatestPingPacketLoss() {
+    const latest = pingHistory.find((item) => item && item.packetLoss !== null && item.packetLoss !== undefined);
+    return latest ? latest.packetLoss : null;
+}
+
+function parseRateMbps(value) {
+    if (value === null || value === undefined || value === "") {
+        return null;
+    }
+
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value : null;
+    }
+
+    const text = String(value).trim();
+    const numericMatch = text.match(/[-+]?\d+(?:\.\d+)?/);
+    if (!numericMatch) {
+        return null;
+    }
+
+    const numeric = Number(numericMatch[0]);
+    if (!Number.isFinite(numeric)) {
+        return null;
+    }
+
+    if (/gbps/i.test(text)) {
+        return numeric * 1000;
+    }
+
+    if (/\bkbps\b/i.test(text)) {
+        return numeric / 1000;
+    }
+
+    if (/\bbps\b/i.test(text) && !/mbps/i.test(text)) {
+        return numeric / 1000000;
+    }
+
+    return numeric;
+}
+
+function formatMetric(value, unit, digits = 1) {
+    return Number.isFinite(value) ? `${value.toFixed(digits)} ${unit}` : "-";
+}
+
+function buildQosSnapshot(cpeData, pingResult, source = "ping") {
+    const txThroughputMbps = parseRateMbps(cpeData && cpeData.clientTxRate);
+    const rxThroughputMbps = parseRateMbps(cpeData && cpeData.clientRxRate);
+    const throughputMbps = Number.isFinite(rxThroughputMbps)
+        ? rxThroughputMbps
+        : Number.isFinite(txThroughputMbps)
+            ? txThroughputMbps
+            : null;
+
+    return {
+        timestamp: Date.now(),
+        source,
+        host: pingResult ? pingResult.host : String(BASE_URL).replace(/^https?:\/\//, "").replace(/\/$/, ""),
+        packetLoss: pingResult && pingResult.packetLoss !== undefined ? pingResult.packetLoss : null,
+        delayMs: pingResult && pingResult.avgLatencyMs !== undefined ? pingResult.avgLatencyMs : null,
+        jitterMs: pingResult && pingResult.jitterMs !== undefined ? pingResult.jitterMs : null,
+        throughputMbps,
+        txThroughputMbps,
+        rxThroughputMbps,
+        packetsSent: pingResult ? pingResult.packetsSent : null,
+        packetsReceived: pingResult ? pingResult.packetsReceived : null,
+        minLatencyMs: pingResult ? pingResult.minLatencyMs : null,
+        maxLatencyMs: pingResult ? pingResult.maxLatencyMs : null
+    };
+}
+
+function recordQosHistory(qos) {
+    addHistoryEvent("qos", {
+        event: "QoS measured",
+        ...qos
+    });
+}
+
+async function saveQosDataToMongo(qos) {
+    if (!qosDataCollection) {
+        console.warn("MongoDB qosDataCollection belum siap, data QoS tidak disimpan ke database.");
         return;
     }
 
     try {
-        await sensorDataCollection.insertOne({
+        await qosDataCollection.insertOne({
+            ...qos,
+            timestamp: new Date(qos.timestamp),
+            createdAt: new Date()
+        });
+    } catch (err) {
+        console.error("Gagal menyimpan data QoS ke MongoDB:", err.message);
+    }
+}
+
+async function saveAntennaDataToMongo(data) {
+    if (!antennaDataCollection) {
+        console.warn("MongoDB antennaDataCollection belum siap, data antenna tidak disimpan ke database.");
+        return;
+    }
+
+    try {
+        await antennaDataCollection.insertOne({
             source: "cpe210",
             timestamp: new Date(),
             createdAt: new Date(),
@@ -280,9 +462,13 @@ async function connectMongo() {
     const db = mongoClient.db(DB_NAME);
     usersCollection = db.collection("users");
     sensorDataCollection = db.collection("sensor_data");
+    antennaDataCollection = db.collection("antenna_data");
+    qosDataCollection = db.collection("qos_data");
 
     await usersCollection.createIndex({ username: 1 }, { unique: true });
     await sensorDataCollection.createIndex({ timestamp: -1 });
+    await antennaDataCollection.createIndex({ timestamp: -1 });
+    await qosDataCollection.createIndex({ timestamp: -1 });
     await ensureDefaultUsers();
 
     console.log(`MongoDB terhubung: ${MONGO_URI} / ${DB_NAME}`);
@@ -380,6 +566,7 @@ app.post("/api/signup", async (req, res) => {
     try {
         const username = String(req.body.username || "").trim();
         const password = String(req.body.password || "");
+        const email = String(req.body.email || "").trim().toLowerCase();
 
         if (username.length < 3) {
             return res.status(400).json({ success: false, message: "Username minimal 3 karakter" });
@@ -389,6 +576,10 @@ app.post("/api/signup", async (req, res) => {
             return res.status(400).json({ success: false, message: "Password minimal 6 karakter" });
         }
 
+        if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+            return res.status(400).json({ success: false, message: "Email tidak valid" });
+        }
+
         if (!usersCollection) {
             return res.status(503).json({
                 success: false,
@@ -396,25 +587,216 @@ app.post("/api/signup", async (req, res) => {
             });
         }
 
-        await usersCollection.insertOne({
+        // check for existing username or email
+        const existing = await usersCollection.findOne({ $or: [{ username }, { email }] });
+        if (existing) {
+            return res.status(409).json({ success: false, message: "Username atau email sudah digunakan" });
+        }
+
+        const verificationCode = generateVerificationCode();
+        const verificationCodeHash = hashCode(verificationCode);
+        const codeExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+        const userDoc = {
             username,
+            email,
             passwordHash: hashPassword(password),
             role: "user",
+            emailVerified: false,
+            verificationCodeHash,
+            verificationCodeExpires: new Date(codeExpires),
             createdAt: new Date()
-        });
+        };
+
+        await usersCollection.insertOne(userDoc);
+
+        // try to send verification email (non-blocking)
+        sendVerificationEmail(email, verificationCode, username).then((ok) => {
+            if (!ok) {
+                console.warn("Pengguna dibuat tetapi email verifikasi gagal dikirim ke", email);
+            }
+        }).catch(() => {});
 
         return res.status(201).json({
             success: true,
-            message: "Akun berhasil dibuat. Silakan login.",
+            message: "Akun berhasil dibuat. Kode verifikasi telah dikirim ke email Anda.",
             username
         });
     } catch (err) {
         if (err.code === 11000) {
-            return res.status(409).json({ success: false, message: "Username sudah digunakan" });
+            return res.status(409).json({ success: false, message: "Username atau email sudah digunakan" });
         }
 
         console.error("Signup error:", err.message);
         return res.status(500).json({ success: false, message: "Signup gagal", details: err.message });
+    }
+});
+
+// Verify email with OTP
+app.post("/api/verify-email", async (req, res) => {
+    try {
+        const identifier = String(req.body.username || req.body.email || "").trim();
+        const code = String(req.body.code || "").trim();
+
+        if (!identifier || !code) {
+            return res.status(400).json({ success: false, message: "Username/email dan kode verifikasi diperlukan" });
+        }
+
+        const query = identifier.includes("@") ? { email: identifier.toLowerCase() } : { username: identifier };
+        const user = await usersCollection.findOne(query);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User tidak ditemukan" });
+        }
+
+        if (user.emailVerified) {
+            return res.json({ success: true, message: "Email sudah terverifikasi" });
+        }
+
+        if (!user.verificationCodeHash || !user.verificationCodeExpires) {
+            return res.status(400).json({ success: false, message: "Tidak ada kode verifikasi aktif. Minta kirim ulang kode." });
+        }
+
+        if (new Date() > new Date(user.verificationCodeExpires)) {
+            return res.status(400).json({ success: false, message: "Kode verifikasi sudah kadaluarsa" });
+        }
+
+        if (hashCode(code) !== user.verificationCodeHash) {
+            return res.status(400).json({ success: false, message: "Kode verifikasi salah" });
+        }
+
+        await usersCollection.updateOne({ _id: user._id }, { $set: { emailVerified: true }, $unset: { verificationCodeHash: "", verificationCodeExpires: "" } });
+
+        const sessionId = generateSessionId();
+        sessions.set(sessionId, {
+            username: user.username,
+            userId: user._id.toString(),
+            createdAt: Date.now()
+        });
+        setSessionCookie(res, sessionId);
+
+        return res.json({ success: true, message: "Email berhasil diverifikasi", redirect: true });
+    } catch (err) {
+        console.error("Verify email error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal memverifikasi email", details: err.message });
+    }
+});
+
+// Resend verification code
+app.post("/api/resend-verification", async (req, res) => {
+    try {
+        const identifier = String(req.body.username || req.body.email || "").trim();
+        if (!identifier) {
+            return res.status(400).json({ success: false, message: "Username atau email diperlukan" });
+        }
+
+        const query = identifier.includes("@") ? { email: identifier.toLowerCase() } : { username: identifier };
+        const user = await usersCollection.findOne(query);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User tidak ditemukan" });
+        }
+
+        if (user.emailVerified) {
+            return res.json({ success: true, message: "Email sudah terverifikasi" });
+        }
+
+        const verificationCode = generateVerificationCode();
+        const verificationCodeHash = hashCode(verificationCode);
+        const codeExpires = Date.now() + 15 * 60 * 1000;
+
+        await usersCollection.updateOne({ _id: user._id }, { $set: { verificationCodeHash, verificationCodeExpires: new Date(codeExpires) } });
+
+        sendVerificationEmail(user.email, verificationCode, user.username).then((ok) => {
+            if (!ok) console.warn("Gagal mengirim ulang email verifikasi ke", user.email);
+        }).catch(() => {});
+
+        return res.json({ success: true, message: "Kode verifikasi baru telah dikirim" });
+    } catch (err) {
+        console.error("Resend verification error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal kirim ulang kode verifikasi", details: err.message });
+    }
+});
+
+// Request login OTP (passwordless) - sends OTP to user's email
+app.post("/api/request-login-otp", async (req, res) => {
+    try {
+        const email = String(req.body.email || "").trim().toLowerCase();
+        if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+            return res.status(400).json({ success: false, message: "Email tidak valid" });
+        }
+
+        if (!usersCollection) {
+            return res.status(503).json({ success: false, message: "Service tidak tersedia. Coba lagi nanti." });
+        }
+
+        const user = await usersCollection.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Email tidak terdaftar" });
+        }
+
+        const verificationCode = generateVerificationCode();
+        const verificationCodeHash = hashCode(verificationCode);
+        const codeExpires = Date.now() + 15 * 60 * 1000;
+
+        await usersCollection.updateOne({ _id: user._id }, { $set: { verificationCodeHash, verificationCodeExpires: new Date(codeExpires) } });
+
+        sendVerificationEmail(user.email, verificationCode, user.username).then((ok) => {
+            if (!ok) console.warn("Gagal mengirim OTP login ke", user.email);
+        }).catch(() => {});
+
+        return res.json({ success: true, message: "Kode OTP telah dikirim ke email Anda" });
+    } catch (err) {
+        console.error("Request login OTP error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal proses OTP", details: err.message });
+    }
+});
+
+// Verify login OTP and create session (passwordless login)
+app.post("/api/verify-login-otp", async (req, res) => {
+    try {
+        const email = String(req.body.email || "").trim().toLowerCase();
+        const code = String(req.body.code || "").trim();
+
+        if (!email || !code) {
+            return res.status(400).json({ success: false, message: "Email dan kode OTP diperlukan" });
+        }
+
+        if (!usersCollection) {
+            return res.status(503).json({ success: false, message: "Service tidak tersedia" });
+        }
+
+        const user = await usersCollection.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User tidak ditemukan" });
+        }
+
+        if (!user.verificationCodeHash || !user.verificationCodeExpires) {
+            return res.status(400).json({ success: false, message: "Tidak ada kode OTP aktif. Minta kirim ulang kode." });
+        }
+
+        if (new Date() > new Date(user.verificationCodeExpires)) {
+            return res.status(400).json({ success: false, message: "Kode OTP sudah kadaluarsa" });
+        }
+
+        if (hashCode(code) !== user.verificationCodeHash) {
+            return res.status(400).json({ success: false, message: "Kode OTP salah" });
+        }
+
+        // mark email verified and clear OTP
+        await usersCollection.updateOne({ _id: user._id }, { $set: { emailVerified: true }, $unset: { verificationCodeHash: "", verificationCodeExpires: "" } });
+
+        // create session and set cookie
+        const sessionId = generateSessionId();
+        sessions.set(sessionId, {
+            username: user.username,
+            userId: user._id.toString(),
+            createdAt: Date.now()
+        });
+        setSessionCookie(res, sessionId);
+
+        return res.json({ success: true, message: "Login berhasil", username: user.username });
+    } catch (err) {
+        console.error("Verify login OTP error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal verifikasi OTP", details: err.message });
     }
 });
 
@@ -427,6 +809,11 @@ app.post("/api/login", async (req, res) => {
 
         if (!passwordMatches) {
             return res.status(401).json({ success: false, message: "Username atau password salah" });
+        }
+
+        // If user is stored in MongoDB, require email verification
+        if (usersCollection && validUser && validUser._id && !validUser.emailVerified) {
+            return res.status(403).json({ success: false, message: "Email belum terverifikasi. Silakan verifikasi melalui email Anda." });
         }
 
         const sessionId = generateSessionId();
@@ -468,16 +855,27 @@ function getWaterStatus(distance) {
         return "Menunggu data ESP32";
     }
 
-    // Semakin kecil jarak sensor ke air, semakin tinggi permukaan air.
-    if (distance < 130) {
-        return "Tinggi";
+    // Range water monitoring:
+    // 52-75 cm = Aman
+    // 42-51 cm = Siaga
+    // 20-41 cm = Bahaya
+    if (distance >= 52 && distance <= 75) {
+        return "Aman";
     }
 
-    if (distance <= 160) {
-        return "Normal";
+    if (distance >= 42 && distance <= 51) {
+        return "Siaga";
     }
 
-    return "Rendah";
+    if (distance >= 20 && distance <= 41) {
+        return "Bahaya";
+    }
+
+    if (distance > 75) {
+        return "Aman";
+    }
+
+    return "Bahaya";
 }
 
 app.post("/data", async (req, res) => {
@@ -566,6 +964,30 @@ async function runPingTest(host, count = 4) {
     });
 }
 
+// New endpoint: Get latest packet loss from ping history
+app.get("/api/packet-loss", requireAuth, (req, res) => {
+    try {
+        if (pingHistory && pingHistory.length > 0) {
+            const latest = pingHistory[0];
+            return res.json({
+                success: true,
+                packetLoss: latest.packetLoss,
+                timestamp: latest.timestamp,
+                host: latest.host
+            });
+        }
+
+        return res.json({
+            success: true,
+            packetLoss: null,
+            message: "No ping data yet"
+        });
+    } catch (err) {
+        console.error("Get packet loss error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal ambil packet loss", details: err.message });
+    }
+});
+
 app.get("/api/ping", requireAuth, async (req, res) => {
     try {
         const host = String(req.query.host || BASE_URL).trim();
@@ -592,6 +1014,38 @@ app.get("/api/ping-history", requireAuth, (req, res) => {
     } catch (err) {
         console.error("Get ping history error:", err.message);
         return res.status(500).json({ success: false, message: "Gagal mendapatkan ping history", details: err.message });
+    }
+});
+
+app.get("/api/qos", requireAuth, async (req, res) => {
+    try {
+        const host = String(req.query.host || QOS_TARGET_HOST).trim();
+        const count = Number(req.query.count || 4);
+        const pingResult = await runPingTest(host, Number.isFinite(count) && count > 0 ? count : 4);
+        addPingHistory(pingResult);
+
+        let cpeData = latestCpeData;
+        if (!cpeData) {
+            try {
+                cpeData = await getDataFromCPEWithLogin();
+                latestCpeData = cpeData;
+            } catch (cpeErr) {
+                console.warn("QoS throughput fallback: gagal ambil data CPE:", cpeErr.message);
+            }
+        }
+
+        const qos = buildQosSnapshot(cpeData, pingResult);
+        recordQosHistory(qos);
+        await saveQosDataToMongo(qos);
+
+        return res.json({
+            success: true,
+            qos,
+            history: historyState.qos.slice(0, 20)
+        });
+    } catch (err) {
+        console.error("QoS error:", err.message);
+        return res.status(500).json({ success: false, message: "Gagal mengambil data QoS", details: err.message });
     }
 });
 
@@ -690,12 +1144,51 @@ function getCpeRequestConfig() {
     };
 }
 
-function normalizeCpeData(rawData) {
-    if (rawData && rawData.success === true && rawData.data && typeof rawData.data === "object") {
-        return rawData.data;
+function parseNumericPacketLoss(value) {
+    if (value === null || value === undefined) {
+        return null;
     }
 
-    return rawData;
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value : null;
+    }
+
+    const stringValue = String(value).trim();
+    const match = stringValue.match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+    if (match) {
+        return Number(match[1]);
+    }
+
+    const numeric = Number(stringValue.replace(/[^0-9.-]+/g, ""));
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function extractPacketLossFromCpeData(data) {
+    if (!data || typeof data !== "object") {
+        return null;
+    }
+
+    const candidates = [
+        data.packetLoss,
+        data.packet_loss,
+        data.loss,
+        data.wirelessPacketLoss,
+        data.packetLossPercent,
+        data.packet_loss_percent,
+        data.txLoss,
+        data.rxLoss,
+        data.lossPercent,
+        data.loss_percentage
+    ];
+
+    for (const value of candidates) {
+        const parsed = parseNumericPacketLoss(value);
+        if (parsed !== null) {
+            return parsed;
+        }
+    }
+
+    return null;
 }
 
 function isCpeInfoData(data) {
@@ -705,6 +1198,19 @@ function isCpeInfoData(data) {
         data.rssiValueCombined ||
         data.clientSsid
     ));
+}
+
+function normalizeCpeData(rawData) {
+    // Pass through as-is if it matches expected structure
+    if (isCpeInfoData(rawData)) {
+        return rawData;
+    }
+    // If raw data has nested structure, extract it
+    if (rawData && rawData.data && isCpeInfoData(rawData.data)) {
+        return rawData.data;
+    }
+    // Otherwise return as-is and let isCpeInfoData validation handle it
+    return rawData || {};
 }
 
 async function getDataFromCPE() {
@@ -764,6 +1270,7 @@ async function getDataFromCPEWithLogin() {
 app.get("/api/cpe", requireAuth, async (req, res) => {
     try {
         const rawData = await getDataFromCPEWithLogin();
+        latestCpeData = rawData;
         recordAntennaHistory(rawData);
         await saveAntennaDataToMongo(rawData);
         rawData.waterLevel = waterLevelState.level;
@@ -771,15 +1278,55 @@ app.get("/api/cpe", requireAuth, async (req, res) => {
         rawData.waterStatus = waterLevelState.status;
         rawData.waterLastUpdated = waterLevelState.lastUpdated;
         rawData.motorPosition = motorState.position;
+        rawData.packetLoss = extractPacketLossFromCpeData(rawData);
+        rawData.packetLossSource = rawData.packetLoss !== null ? "cpe" : null;
+
+        if (rawData.packetLoss === null) {
+            const latestPingPacketLoss = getLatestPingPacketLoss();
+            if (latestPingPacketLoss !== null) {
+                rawData.packetLoss = latestPingPacketLoss;
+                rawData.packetLossSource = "ping";
+            }
+        }
+
+        // Auto-ping to get packet loss from network (non-blocking)
+        // Try to ping the CPE/Mikrotik and extract packet loss
+        if (rawData.packetLoss === null) {
+            runPingTest(QOS_TARGET_HOST, 4).then((pingResult) => {
+                if (pingResult && pingResult.packetLoss !== null) {
+                    console.log(`Auto-ping packet loss: ${pingResult.packetLoss}%`);
+                    addPingHistory(pingResult);
+                }
+            }).catch((err) => {
+                // Silently fail; we already have antenna data
+                console.debug("Auto-ping failed (non-critical):", err.message);
+            });
+        }
+
         res.json(rawData);
     } catch (err) {
         console.error("Error:", err.message);
+        const latestPingPacketLoss = getLatestPingPacketLoss();
+
+        if (latestPingPacketLoss === null) {
+            runPingTest(QOS_TARGET_HOST, 4).then((pingResult) => {
+                if (pingResult && pingResult.packetLoss !== null) {
+                    console.log(`Auto-ping packet loss after CPE error: ${pingResult.packetLoss}%`);
+                    addPingHistory(pingResult);
+                }
+            }).catch((pingErr) => {
+                console.debug("Auto-ping after CPE error failed (non-critical):", pingErr.message);
+            });
+        }
+
         res.json({
             error: "Gagal ambil data dari CPE210",
             details: err.message,
             cpeBaseUrl: BASE_URL,
             cpeLockUntil: cpeLockUntil || null,
             cpeCookieConfigured: Boolean(CPE_COOKIE),
+            packetLoss: latestPingPacketLoss,
+            packetLossSource: latestPingPacketLoss !== null ? "ping" : null,
             waterLevel: waterLevelState.level,
             waterDistance: waterLevelState.distance,
             waterStatus: waterLevelState.status,
